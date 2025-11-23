@@ -12,10 +12,10 @@ export class CacheService {
    * Initialize the SQLite database and create the menu_cache table.
    * Must be called before using any other methods.
    */
-  async init(): Promise<void> {
+  async init(filename: string = "./cache.db"): Promise<void> {
     try {
       this.db = await open({
-        filename: "./cache.db",
+        filename: filename,
         driver: sqlite3.Database
       });
 
