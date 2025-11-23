@@ -1,10 +1,9 @@
-import { Router, Request, Response } from "express";
+import express from "express";
+import { handleSummarize } from "../controllers/summarize.controller";
 
-const router = Router();
+const router = express.Router();
 
-router.post("/summarize", async (req: Request, res: Response) => {
-  res.json({ message: "summarize endpoint works" });
-});
+router.post("/summarize", handleSummarize);
 
 export default router;
 
