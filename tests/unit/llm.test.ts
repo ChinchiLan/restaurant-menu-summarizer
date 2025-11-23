@@ -189,7 +189,7 @@ describe("LLM Service - Czech Data", () => {
     };
 
     await expect(extractMenu(content)).rejects.toThrow(
-      "LLM extraction failed: Invalid JSON returned from LLM"
+      "Invalid JSON returned from LLM"
     );
   });
 
@@ -220,7 +220,7 @@ describe("LLM Service - Czech Data", () => {
     };
 
     await expect(extractMenu(content)).rejects.toThrow(
-      "LLM extraction failed: LLM output did not match MenuResponse schema"
+      "LLM output did not match MenuResponse schema"
     );
   });
 

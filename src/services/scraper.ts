@@ -1,16 +1,12 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
+import { logger } from "../utils/logger";
+import { ScraperErrors } from "../errors";
 
-/**
- * Scrapes a URL and returns raw HTML and extracted plain text.
- * 
- * @param url - The URL to scrape
- * @returns Object containing raw HTML and extracted text
- * @throws Error if the fetch fails or HTML is empty
- */
 export async function scrape(url: string): Promise<{ html: string; text: string }> {
   try {
-    // Fetch the HTML content from the URL
+    logger.info("SCRAPER", "Fetch started", { url });
+
     const response = await axios.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -20,22 +16,18 @@ export async function scrape(url: string): Promise<{ html: string; text: string 
 
     const html = response.data;
 
-    // Check if HTML is empty
     if (!html || html.trim().length === 0) {
-      throw new Error("Empty HTML response");
+      logger.warn("SCRAPER", "Empty HTML response", { url });
+      throw new ScraperErrors.HtmlEmptyError({ url });
     }
 
-    // Load HTML into Cheerio
+    logger.info("SCRAPER", "Fetch successful", { url, size: html.length });
+
     const $ = cheerio.load(html);
 
-    // Remove script and style elements to get cleaner text
-    $('script').remove();
-    $('style').remove();
+    $("script, style, noscript, iframe").remove();
 
-    // Extract visible text content
-    const text = $('body').text()
-      .replace(/\s+/g, ' ') // Replace multiple whitespace with single space
-      .trim();
+    const text = $("body").text().replace(/\s+/g, " ").trim();
 
     // TODO: Add fallback LLM fetch if text extraction is insufficient
     // TODO: Add support for JavaScript-rendered content (Puppeteer/Playwright)
@@ -47,16 +39,16 @@ export async function scrape(url: string): Promise<{ html: string; text: string 
     };
 
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      throw new Error("Failed to fetch URL: " + url);
-    }
-    
-    // Re-throw if it's already our custom error
-    if (error instanceof Error && error.message === "Empty HTML response") {
+    if (error instanceof ScraperErrors.HtmlEmptyError) {
       throw error;
     }
+    
+    if (axios.isAxiosError(error)) {
+      logger.error("SCRAPER", "Fetch failed", { url, reason: error.message });
+      throw new ScraperErrors.FetchFailedError({ url, reason: error.message });
+    }
 
-    // Handle any other unexpected errors
-    throw new Error("Failed to fetch URL: " + url);
+    logger.error("SCRAPER", "Unexpected error", { url });
+    throw new ScraperErrors.FetchFailedError({ url });
   }
 }

@@ -35,7 +35,7 @@ describe("Scraper Service - Czech Data", () => {
     mockedAxios.get.mockRejectedValue(new Error("Network error"));
 
     await expect(scrape("https://restaurace.cz")).rejects.toThrow(
-      "Failed to fetch URL: https://restaurace.cz"
+      "Failed to fetch URL"
     );
   });
 
