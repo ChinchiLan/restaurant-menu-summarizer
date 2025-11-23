@@ -141,7 +141,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/urlEmpty");
     expect(response.body).toHaveProperty("message");
     expect(response.body.message).toContain("url");
   });
@@ -157,7 +157,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidDateFormat");
     expect(response.body.message).toContain("YYYY-MM-DD");
   });
 
@@ -172,7 +172,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidDateFormat");
     expect(response.body.message).toContain("YYYY-MM-DD");
   });
 
@@ -209,9 +209,10 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
     expect(response2.body.data.items[0].name).toBe("Vepřové s knedlíky");
   });
 
-  it("returns 500 when scraper fails for Czech URL", async () => {
+  it("returns 502 when scraper fails for Czech URL", async () => {
+    const { ScraperErrors } = require("../../src/errors");
     mockedScrape.mockRejectedValue(
-      new Error("Failed to fetch URL: https://neexistuje.cz")
+      new ScraperErrors.FetchFailedError({ url: "https://neexistuje.cz" })
     );
 
     const requestBody = {
@@ -222,9 +223,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
     const response = await request(app)
       .post("/api/summarize")
       .send(requestBody)
-      .expect(500);
+      .expect(502);
 
-    expect(response.body).toHaveProperty("error", "Internal server error");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/scraper/fetchFailed");
     expect(response.body.message).toContain("Failed to fetch URL");
   });
 
@@ -239,7 +240,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
     expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
   });
 
@@ -254,7 +255,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
     expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
   });
 
@@ -269,7 +270,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
     expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
   });
 
@@ -309,5 +310,111 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     expect(response.body).toHaveProperty("source");
     expect(response.body).toHaveProperty("data");
+  });
+
+  it("handles array of 2 URLs and returns array of results", async () => {
+    mockedScrape
+      .mockResolvedValueOnce({
+        html: "<p>Restaurace 1</p>",
+        text: "Restaurace 1"
+      })
+      .mockResolvedValueOnce({
+        html: "<p>Restaurace 2</p>",
+        text: "Restaurace 2"
+      });
+
+    mockedExtractMenu
+      .mockResolvedValueOnce({
+        items: [{ name: "Polévka 1", price: 45 }]
+      })
+      .mockResolvedValueOnce({
+        items: [{ name: "Polévka 2", price: 55 }]
+      });
+
+    const requestBody = {
+      url: ["https://restaurace1.cz", "https://restaurace2.cz"],
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body).toHaveProperty("source", "fresh");
+    expect(response.body).toHaveProperty("data");
+    expect(Array.isArray(response.body.data)).toBe(true);
+    expect(response.body.data).toHaveLength(2);
+    expect(response.body.data[0]).toHaveProperty("url", "https://restaurace1.cz");
+    expect(response.body.data[0]).toHaveProperty("items");
+    expect(response.body.data[0].items[0]).toHaveProperty("name", "Polévka 1");
+    expect(response.body.data[1]).toHaveProperty("url", "https://restaurace2.cz");
+    expect(response.body.data[1].items[0]).toHaveProperty("name", "Polévka 2");
+  });
+
+  it("invalid URL inside array returns 400 with correct error code", async () => {
+    const requestBody = {
+      url: ["https://restaurace1.cz", "invalid-url"],
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(400);
+
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
+    expect(response.body).toHaveProperty("message");
+  });
+
+  it("empty array returns 400 with correct error code", async () => {
+    const requestBody = {
+      url: [],
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(400);
+
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlArray");
+    expect(response.body).toHaveProperty("message");
+  });
+
+  it("mixture of cache and fresh returns source mixed", async () => {
+    await cacheService.saveMenuToCache(
+      "https://cached-restaurace.cz",
+      "2025-11-23",
+      { items: [{ name: "Cached Polévka", price: 40 }] }
+    );
+
+    mockedScrape.mockResolvedValueOnce({
+      html: "<p>Fresh restaurace</p>",
+      text: "Fresh restaurace"
+    });
+
+    mockedExtractMenu.mockResolvedValueOnce({
+      items: [{ name: "Fresh Polévka", price: 50 }]
+    });
+
+    const requestBody = {
+      url: ["https://cached-restaurace.cz", "https://fresh-restaurace.cz"],
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body).toHaveProperty("source", "mixed");
+    expect(response.body).toHaveProperty("data");
+    expect(Array.isArray(response.body.data)).toBe(true);
+    expect(response.body.data).toHaveLength(2);
+    expect(response.body.data[0]).toHaveProperty("url", "https://cached-restaurace.cz");
+    expect(response.body.data[0].items[0]).toHaveProperty("name", "Cached Polévka");
+    expect(response.body.data[1]).toHaveProperty("url", "https://fresh-restaurace.cz");
+    expect(response.body.data[1].items[0]).toHaveProperty("name", "Fresh Polévka");
   });
 });
