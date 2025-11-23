@@ -1,8 +1,5 @@
 import OpenAI from "openai";
 
-/**
- * Type definition for a single menu item
- */
 export type MenuItem = {
   name: string;
   price?: number;
@@ -11,16 +8,10 @@ export type MenuItem = {
   weight?: string;
 };
 
-/**
- * Type definition for the complete menu response
- */
 export type MenuResponse = {
   items: MenuItem[];
 };
 
-/**
- * Initialize OpenAI client with API key from environment
- */
 function getOpenAIClient(): OpenAI {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY. Set it in .env");
@@ -29,17 +20,50 @@ function getOpenAIClient(): OpenAI {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
-/**
- * Extracts restaurant menu items from HTML and text content using LLM.
- * 
- * @param content - Object containing html, text, and url of the restaurant page
- * @returns Raw LLM response (to be parsed later)
- */
-export async function extractMenu(content: { html: string; text: string; url: string }): Promise<any> {
+export function normalizePrice(raw: string): { price: number } {
+  const cleaned = raw.replace(/[^\d,\.]/g, "");
+  
+  const normalized = cleaned.replace(",", ".");
+  
+  const price = parseFloat(normalized);
+  
+  if (isNaN(price)) {
+    return { price: 0 };
+  }
+  
+  return { price };
+}
+
+function validateMenuResponse(parsed: any): void {
+  if (!parsed.items || !Array.isArray(parsed.items)) {
+    throw new Error("LLM output did not match MenuResponse schema");
+  }
+  
+  for (const item of parsed.items) {
+    if (!item.name || typeof item.name !== "string" || item.name.trim().length === 0) {
+      throw new Error("LLM output did not match MenuResponse schema");
+    }
+  }
+}
+
+function normalizeAllPrices(items: MenuItem[]): MenuItem[] {
+  return items.map(item => {
+    if (item.price !== undefined && typeof item.price === "string") {
+      const normalized = normalizePrice(item.price as any);
+      return { ...item, price: normalized.price };
+    }
+    return item;
+  });
+}
+
+export async function extractMenu(content: { html: string; text: string; url: string }): Promise<MenuResponse> {
   const client = getOpenAIClient();
 
-  // Prepare messages for the LLM
   const systemMessage = "You extract restaurant menu items from raw HTML and extracted text. Return structured JSON only.";
+  
+  // TODO: Add retry logic with exponential backoff for rate limits
+  // TODO: Add token counting and cost tracking
+  // TODO: Implement streaming for large responses
   
   const userMessage = `
 Extract menu items from the following restaurant page:
@@ -52,13 +76,6 @@ ${content.text}
 Raw HTML (for reference):
 ${content.html.substring(0, 5000)}...
 `.trim();
-
-  // TODO: Validate structured output against MenuResponse schema
-  // TODO: Process function call results if the model requests normalizePrice
-  // TODO: Add retry logic with exponential backoff for rate limits
-  // TODO: Fallback to HTML-only extraction if text is insufficient
-  // TODO: Add token counting and cost tracking
-  // TODO: Implement streaming for large responses
 
   try {
     const response = await client.chat.completions.create({
@@ -88,8 +105,34 @@ ${content.html.substring(0, 5000)}...
       ]
     });
 
-    // Return raw response for now (no parsing/validation yet)
-    return response;
+    const message = response.choices[0].message;
+
+    if (message.function_call) {
+      if (message.function_call.name === "normalizePrice") {
+        const args = JSON.parse(message.function_call.arguments);
+        const normalized = normalizePrice(args.raw);
+        return { items: [] };
+      }
+    }
+
+    if (!message.content) {
+      throw new Error("Invalid JSON returned from LLM");
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(message.content);
+    } catch (error) {
+      throw new Error("Invalid JSON returned from LLM");
+    }
+
+    validateMenuResponse(parsed);
+
+    const normalizedItems = normalizeAllPrices(parsed.items);
+
+    return {
+      items: normalizedItems
+    };
 
   } catch (error) {
     if (error instanceof Error) {
@@ -97,17 +140,4 @@ ${content.html.substring(0, 5000)}...
     }
     throw new Error("LLM extraction failed: Unknown error");
   }
-}
-
-/**
- * Dummy function to normalize price strings (to be implemented later)
- * This will be called when the LLM requests price normalization
- * 
- * @param raw - Raw price string like "145,-" or "$12.99"
- * @returns Normalized price as a number
- */
-export function normalizePrice(raw: string): { price: number } {
-  // TODO: Implement actual price normalization logic
-  // Handle formats like: "145,-", "$12.99", "12,50 €", etc.
-  return { price: 0 };
 }

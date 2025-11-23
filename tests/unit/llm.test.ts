@@ -46,11 +46,12 @@ describe("LLM Service - Czech Data", () => {
     const result = await extractMenu(content);
 
     expect(result).toBeDefined();
-    expect(result.choices).toBeDefined();
-    expect(result.choices[0].message.content).toContain("Polévka");
+    expect(result.items).toBeDefined();
+    expect(Array.isArray(result.items)).toBe(true);
+    expect(result.items[0].name).toBe("Polévka");
   });
 
-  it("returns raw OpenAI response for Czech menu", async () => {
+  it("returns parsed MenuResponse for Czech menu", async () => {
     const content = {
       html: "<html><body><h1>Denní menu</h1><p>Svíčková na smetaně 145,-</p></body></html>",
       text: "Denní menu Svíčková na smetaně 145,-",
@@ -59,13 +60,10 @@ describe("LLM Service - Czech Data", () => {
 
     const result = await extractMenu(content);
 
-    expect(result).toHaveProperty("choices");
-    expect(result.choices[0]).toHaveProperty("message");
-    expect(result.choices[0].message).toHaveProperty("content");
-    
-    const parsedContent = JSON.parse(result.choices[0].message.content);
-    expect(parsedContent).toHaveProperty("items");
-    expect(parsedContent.items[0].name).toBe("Polévka");
+    expect(result).toHaveProperty("items");
+    expect(Array.isArray(result.items)).toBe(true);
+    expect(result.items[0]).toHaveProperty("name");
+    expect(result.items[0].name).toBe("Polévka");
   });
 
   it("throws if OPENAI_API_KEY missing", async () => {
@@ -126,6 +124,8 @@ describe("LLM Service - Czech Data", () => {
         ])
       })
     );
+    expect(result.items).toHaveLength(3);
+    expect(result.items[0].name).toBe("Švestkové knedlíky");
   });
 
   it("includes Czech price format in function call", async () => {
@@ -160,5 +160,104 @@ describe("LLM Service - Czech Data", () => {
         ])
       })
     );
+  });
+
+  it("throws error for invalid JSON from LLM", async () => {
+    const OpenAI = require("openai");
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: "not valid json"
+          }
+        }
+      ]
+    });
+
+    OpenAI.mockImplementation(() => ({
+      chat: {
+        completions: {
+          create: mockCreate
+        }
+      }
+    }));
+
+    const content = {
+      html: "<p>test</p>",
+      text: "test",
+      url: "https://restaurace.cz"
+    };
+
+    await expect(extractMenu(content)).rejects.toThrow(
+      "LLM extraction failed: Invalid JSON returned from LLM"
+    );
+  });
+
+  it("throws error for invalid schema from LLM", async () => {
+    const OpenAI = require("openai");
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({ wrong: "schema" })
+          }
+        }
+      ]
+    });
+
+    OpenAI.mockImplementation(() => ({
+      chat: {
+        completions: {
+          create: mockCreate
+        }
+      }
+    }));
+
+    const content = {
+      html: "<p>test</p>",
+      text: "test",
+      url: "https://restaurace.cz"
+    };
+
+    await expect(extractMenu(content)).rejects.toThrow(
+      "LLM extraction failed: LLM output did not match MenuResponse schema"
+    );
+  });
+
+  it("normalizes price strings in items", async () => {
+    const OpenAI = require("openai");
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              items: [
+                { name: "Polévka", price: "45,-" as any },
+                { name: "Svíčková", price: "145 Kč" as any }
+              ]
+            })
+          }
+        }
+      ]
+    });
+
+    OpenAI.mockImplementation(() => ({
+      chat: {
+        completions: {
+          create: mockCreate
+        }
+      }
+    }));
+
+    const content = {
+      html: "<p>test</p>",
+      text: "test",
+      url: "https://restaurace.cz"
+    };
+
+    const result = await extractMenu(content);
+
+    expect(result.items[0].price).toBe(45);
+    expect(result.items[1].price).toBe(145);
   });
 });
