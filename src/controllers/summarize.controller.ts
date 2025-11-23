@@ -21,9 +21,25 @@ function isValidDateFormat(date: string): boolean {
     return false;
   }
   
-  // Additional check: ensure it's a valid date
   const parsedDate = new Date(date);
   return !isNaN(parsedDate.getTime());
+}
+
+/**
+ * Validate that a URL is a valid HTTP/HTTPS URL
+ */
+function isValidUrl(url: string): boolean {
+  const trimmed = url.trim();
+  
+  if (trimmed.length === 0) {
+    return false;
+  }
+  
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+    return false;
+  }
+  
+  return true;
 }
 
 /**
@@ -64,8 +80,14 @@ export async function handleSummarize(req: Request, res: Response): Promise<void
       return;
     }
 
-    // TODO: Validate URL format (protocol, valid domain, etc.)
-    // TODO: Sanitize URL to prevent injection attacks
+    if (!isValidUrl(url)) {
+      res.status(400).json({
+        error: "Invalid input",
+        message: "url must be a valid HTTP/HTTPS URL"
+      });
+      return;
+    }
+
     // TODO: Handle url as string[] for multiple restaurants
     // TODO: Validate preferences schema when implemented
 
@@ -85,26 +107,22 @@ export async function handleSummarize(req: Request, res: Response): Promise<void
     const scraped = await scrape(url);
 
     // Step 3: Extract menu using LLM
-    const llmResult = await extractMenu({
+    const menuResponse = await extractMenu({
       html: scraped.html,
       text: scraped.text,
       url: url
     });
 
-    // TODO: Validate LLM response against MenuResponse schema
-    // TODO: Parse and normalize LLM output (handle function calls)
     // TODO: Apply user preferences to filter/rank menu items
     // TODO: Merge multiple restaurant menus if url was an array
     // TODO: Add nutritional info enrichment
     // TODO: Add recommendation scoring based on preferences
 
-    // Step 4: Save to cache
-    await cacheService.saveMenuToCache(url, date, llmResult);
+    await cacheService.saveMenuToCache(url, date, menuResponse);
 
-    // Step 5: Return fresh data
     res.status(200).json({
       source: "fresh",
-      data: llmResult
+      data: menuResponse
     });
 
   } catch (error) {

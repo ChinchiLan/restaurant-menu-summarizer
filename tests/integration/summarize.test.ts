@@ -227,4 +227,87 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
     expect(response.body).toHaveProperty("error", "Internal server error");
     expect(response.body.message).toContain("Failed to fetch URL");
   });
+
+  it("validation error when url does not start with http or https", async () => {
+    const requestBody = {
+      url: "ftp://restaurace.cz",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(400);
+
+    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
+  });
+
+  it("validation error for javascript: URL scheme", async () => {
+    const requestBody = {
+      url: "javascript:alert('xss')",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(400);
+
+    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
+  });
+
+  it("validation error for URL without protocol", async () => {
+    const requestBody = {
+      url: "restaurace.cz",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(400);
+
+    expect(response.body).toHaveProperty("error", "Invalid input");
+    expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
+  });
+
+  it("accepts valid http URL", async () => {
+    mockedExtractMenu.mockResolvedValue({
+      items: [{ name: "Polévka", price: 45 }]
+    });
+
+    const requestBody = {
+      url: "http://restaurace.cz",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body).toHaveProperty("source");
+    expect(response.body).toHaveProperty("data");
+  });
+
+  it("accepts valid https URL", async () => {
+    mockedExtractMenu.mockResolvedValue({
+      items: [{ name: "Polévka", price: 45 }]
+    });
+
+    const requestBody = {
+      url: "https://secure-restaurace.cz",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body).toHaveProperty("source");
+    expect(response.body).toHaveProperty("data");
+  });
 });
