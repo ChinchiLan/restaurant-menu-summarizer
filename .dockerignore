@@ -1,0 +1,16 @@
+node_modules
+.git
+.env
+dist
+cache.db
+logs
+Dockerfile
+docker-compose.yml
+*.log
+coverage
+.nyc_output
+test-cache.db
+test-menu-service.db
+*.test.ts
+tests
+
