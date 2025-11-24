@@ -1,7 +1,9 @@
 import "dotenv/config";
 import express from "express";
 import summarizeRouter from "./routes/summarize.route";
-import { cacheService } from "./services/cache";
+import { cacheService } from "./services/cache.service";
+import { logger } from "./utils/logger";
+import { LOG_SOURCES, LOG_MESSAGES } from "./constants/log";
 
 const app = express();
 app.use(express.json());
@@ -16,33 +18,32 @@ async function startServer(): Promise<void> {
   try {
     // Initialize cache database
     await cacheService.init();
-    console.log("Cache database initialized");
+    logger.system(LOG_MESSAGES.CACHE_DATABASE_INITIALIZED);
 
     // Start listening
     app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+      logger.system(LOG_MESSAGES.SERVER_LISTENING, { port: PORT });
     });
 
     // Graceful shutdown handlers
     process.on("SIGTERM", async () => {
-      console.log("SIGTERM received, closing cache database...");
+      logger.system(LOG_MESSAGES.GRACEFUL_SHUTDOWN, { signal: "SIGTERM" });
       await cacheService.close();
       process.exit(0);
     });
 
     process.on("SIGINT", async () => {
-      console.log("SIGINT received, closing cache database...");
+      logger.system(LOG_MESSAGES.GRACEFUL_SHUTDOWN, { signal: "SIGINT" });
       await cacheService.close();
       process.exit(0);
     });
 
   } catch (error) {
-    console.error("Failed to start server:", error);
+    logger.error(LOG_SOURCES.SERVER, LOG_MESSAGES.FAILED_TO_START_SERVER, { reason: error instanceof Error ? error.message : "unknown" });
     process.exit(1);
   }
 }
 
-// Start the server if this file is run directly
 if (require.main === module) {
   startServer();
 }

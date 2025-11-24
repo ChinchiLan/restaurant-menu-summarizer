@@ -1,0 +1,14 @@
+export const LLM_CONTENT_LIMITS = {
+  MAX_MENU_TEXT_LENGTH: 5000,
+  MAX_MENU_HTML_LENGTH: 2500,
+  MAX_NAME_TEXT_LENGTH: 1500,
+  MAX_NAME_HTML_LENGTH: 2000
+} as const;
+
+export const LLM_CONFIG = {
+  MENU_EXTRACTION_MODEL: "gpt-4o-mini" as const,
+  NAME_EXTRACTION_MODEL: "gpt-4o-mini" as const,
+  TEMPERATURE: 0.1,
+  MAX_NAME_TOKENS: 50
+} as const;
+

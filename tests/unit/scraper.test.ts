@@ -1,5 +1,5 @@
 import axios from "axios";
-import { scrape } from "../../src/services/scraper";
+import { scraperService } from "../../src/services/scraper.service";
 
 jest.mock("axios");
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -13,7 +13,7 @@ describe("Scraper Service - Czech Data", () => {
     const mockHtml = "<html><body><h1>Jídelní lístek</h1><p>Polévka 45,-</p></body></html>";
     mockedAxios.get.mockResolvedValue({ data: mockHtml });
 
-    const result = await scrape("https://restaurace.cz");
+    const result = await scraperService.scrape("https://restaurace.cz");
 
     expect(result).toHaveProperty("html");
     expect(result).toHaveProperty("text");
@@ -34,7 +34,7 @@ describe("Scraper Service - Czech Data", () => {
   it("should throw an error if axios fails", async () => {
     mockedAxios.get.mockRejectedValue(new Error("Network error"));
 
-    await expect(scrape("https://restaurace.cz")).rejects.toThrow(
+    await expect(scraperService.scrape("https://restaurace.cz")).rejects.toThrow(
       "Failed to fetch URL"
     );
   });
@@ -42,7 +42,7 @@ describe("Scraper Service - Czech Data", () => {
   it("should throw if HTML is empty", async () => {
     mockedAxios.get.mockResolvedValue({ data: "" });
 
-    await expect(scrape("https://restaurace.cz")).rejects.toThrow(
+    await expect(scraperService.scrape("https://restaurace.cz")).rejects.toThrow(
       "Empty HTML response"
     );
   });
@@ -62,7 +62,7 @@ describe("Scraper Service - Czech Data", () => {
     `;
     mockedAxios.get.mockResolvedValue({ data: mockHtml });
 
-    const result = await scrape("https://restaurace.cz");
+    const result = await scraperService.scrape("https://restaurace.cz");
 
     expect(result.text).toContain("Denní menu");
     expect(result.text).toContain("Hovězí vývar");

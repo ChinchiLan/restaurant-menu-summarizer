@@ -1,4 +1,4 @@
-import { extractMenu } from "../../src/services/llm";
+import { llmService } from "../../src/services/llm.service";
 
 jest.mock("openai", () => {
   return jest.fn().mockImplementation(() => ({
@@ -9,7 +9,7 @@ jest.mock("openai", () => {
             {
               message: {
                 content: JSON.stringify({
-                  items: [{ name: "Polévka", price: 45 }]
+                  items: [{ name: "Polévka", price: 45, category: "polévka" }]
                 })
               }
             }
@@ -40,10 +40,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<html><body><h1>Jídelní lístek</h1><p>Polévka 45,-</p></body></html>",
       text: "Jídelní lístek Polévka 45,-",
-      url: "https://restaurace.cz"
+      url: "https://restaurace.cz",
+      day: "Pondělí"
     };
 
-    const result = await extractMenu(content);
+    const result = await llmService.extractMenu(content);
 
     expect(result).toBeDefined();
     expect(result.items).toBeDefined();
@@ -55,10 +56,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<html><body><h1>Denní menu</h1><p>Svíčková na smetaně 145,-</p></body></html>",
       text: "Denní menu Svíčková na smetaně 145,-",
-      url: "https://ceska-restaurace.cz"
+      url: "https://ceska-restaurace.cz",
+      day: "Úterý"
     };
 
-    const result = await extractMenu(content);
+    const result = await llmService.extractMenu(content);
 
     expect(result).toHaveProperty("items");
     expect(Array.isArray(result.items)).toBe(true);
@@ -72,10 +74,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<p>Polévka</p>",
       text: "Polévka",
-      url: "https://restaurace.cz"
+      url: "https://restaurace.cz",
+      day: "Středa"
     };
 
-    await expect(extractMenu(content)).rejects.toThrow(
+    await expect(llmService.extractMenu(content)).rejects.toThrow(
       "Missing OPENAI_API_KEY. Set it in .env"
     );
   });
@@ -88,9 +91,9 @@ describe("LLM Service - Czech Data", () => {
           message: {
             content: JSON.stringify({
               items: [
-                { name: "Švestkové knedlíky", price: 85 },
-                { name: "Řízek s bramborovým salátem", price: 125 },
-                { name: "Česnečka", price: 55 }
+                { name: "Švestkové knedlíky", price: 85, category: "dezert" },
+                { name: "Řízek s bramborovým salátem", price: 125, category: "hlavní jídlo" },
+                { name: "Česnečka", price: 55, category: "polévka" }
               ]
             })
           }
@@ -109,10 +112,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<p>Švestkové knedlíky, Řízek, Česnečka</p>",
       text: "Švestkové knedlíky, Řízek, Česnečka",
-      url: "https://restaurace.cz"
+      url: "https://restaurace.cz",
+      day: "Čtvrtek"
     };
 
-    const result = await extractMenu(content);
+    const result = await llmService.extractMenu(content);
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -131,7 +135,7 @@ describe("LLM Service - Czech Data", () => {
   it("includes Czech price format in function call", async () => {
     const OpenAI = require("openai");
     const mockCreate = jest.fn().mockResolvedValue({
-      choices: [{ message: { content: JSON.stringify({ items: [] }) } }]
+      choices: [{ message: { content: JSON.stringify({ items: [{ name: "Polévka", price: "145,-", category: "polévka" }] }) } }]
     });
 
     OpenAI.mockImplementation(() => ({
@@ -145,10 +149,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<p>Polévka 145,-</p>",
       text: "Polévka 145,-",
-      url: "https://restaurace.cz"
+      url: "https://restaurace.cz",
+      day: "Pátek"
     };
 
-    await extractMenu(content);
+    await llmService.extractMenu(content);
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -185,10 +190,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<p>test</p>",
       text: "test",
-      url: "https://restaurace.cz"
+      url: "https://restaurace.cz",
+      day: "Sobota"
     };
 
-    await expect(extractMenu(content)).rejects.toThrow(
+    await expect(llmService.extractMenu(content)).rejects.toThrow(
       "Invalid JSON returned from LLM"
     );
   });
@@ -216,10 +222,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<p>test</p>",
       text: "test",
-      url: "https://restaurace.cz"
+      url: "https://restaurace.cz",
+      day: "Neděle"
     };
 
-    await expect(extractMenu(content)).rejects.toThrow(
+    await expect(llmService.extractMenu(content)).rejects.toThrow(
       "LLM output did not match MenuResponse schema"
     );
   });
@@ -232,8 +239,8 @@ describe("LLM Service - Czech Data", () => {
           message: {
             content: JSON.stringify({
               items: [
-                { name: "Polévka", price: "45,-" as any },
-                { name: "Svíčková", price: "145 Kč" as any }
+                { name: "Polévka", price: "45,-" as any, category: "polévka" },
+                { name: "Svíčková", price: "145 Kč" as any, category: "hlavní jídlo" }
               ]
             })
           }
@@ -252,10 +259,11 @@ describe("LLM Service - Czech Data", () => {
     const content = {
       html: "<p>test</p>",
       text: "test",
-      url: "https://restaurace.cz"
+      url: "https://restaurace.cz",
+      day: "Pondělí"
     };
 
-    const result = await extractMenu(content);
+    const result = await llmService.extractMenu(content);
 
     expect(result.items[0].price).toBe(45);
     expect(result.items[1].price).toBe(145);

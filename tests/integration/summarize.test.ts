@@ -1,23 +1,28 @@
 import request from "supertest";
 import express from "express";
 import summarizeRouter from "../../src/routes/summarize.route";
-import { cacheService } from "../../src/services/cache";
-import * as scraperService from "../../src/services/scraper";
-import * as llmService from "../../src/services/llm";
+import { cacheService } from "../../src/services/cache.service";
+import { scraperService } from "../../src/services/scraper.service";
+import { llmService } from "../../src/services/llm.service";
 import * as fs from "fs";
 import * as path from "path";
 
-jest.mock("../../src/services/scraper");
-jest.mock("../../src/services/llm");
+jest.mock("../../src/services/scraper.service");
+jest.mock("../../src/services/llm.service");
 
 const mockedScrape = scraperService.scrape as jest.MockedFunction<typeof scraperService.scrape>;
 const mockedExtractMenu = llmService.extractMenu as jest.MockedFunction<typeof llmService.extractMenu>;
+const mockedExtractRestaurantName = llmService.extractRestaurantName as jest.MockedFunction<typeof llmService.extractRestaurantName>;
 
 describe("Integration: POST /api/summarize - Czech Data", () => {
   let app: express.Application;
   const testDbPath = path.join(process.cwd(), "test-cache.db");
+  const TEST_API_KEY = "test-api-key-12345";
 
   beforeAll(async () => {
+    // Set API key for tests
+    process.env.API_KEY = TEST_API_KEY;
+    
     await cacheService.init("test-cache.db");
 
     app = express();
@@ -37,13 +42,15 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
     jest.clearAllMocks();
 
     mockedScrape.mockResolvedValue({
-      html: "<html><body><h1>Jídelní lístek</h1><p>Polévka 45,-</p></body></html>",
-      text: "Jídelní lístek Polévka 45,-"
+      html: "<html><body><h1>Denní menu</h1><h2>Pondělí</h2><p>Polévka 45 Kč</p><p>Hlavní jídlo: Smažený řízek 120 Kč</p></body></html>",
+      text: "Denní menu Pondělí Polévka 45 Kč Hlavní jídlo: Smažený řízek 120 Kč"
     });
 
     mockedExtractMenu.mockResolvedValue({
-      items: [{ name: "Polévka", price: 45 }]
+      items: [{ name: "Polévka", price: 45, category: "polévka" }]
     });
+
+    mockedExtractRestaurantName.mockResolvedValue("Test Restaurant");
   });
 
   it("returns fresh Czech menu data on first call", async () => {
@@ -54,20 +61,25 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(200);
 
-    expect(response.body).toHaveProperty("source", "fresh");
-    expect(response.body).toHaveProperty("data");
-    expect(response.body.data).toEqual({
-      items: [{ name: "Polévka", price: 45 }]
-    });
+    expect(response.body).toHaveProperty("restaurant_name");
+    expect(response.body).toHaveProperty("date", "2025-11-23");
+    expect(response.body).toHaveProperty("day_of_week", "Neděle");
+    expect(response.body).toHaveProperty("menu_items");
+    expect(response.body).toHaveProperty("recommendedMeal");
+    expect(response.body.menu_items).toEqual([
+      { name: "Polévka", price: 45, category: "polévka" }
+    ]);
     expect(mockedScrape).toHaveBeenCalledWith("https://restaurace-praha.cz");
     expect(mockedExtractMenu).toHaveBeenCalledWith(
       expect.objectContaining({
-        html: expect.stringContaining("Jídelní lístek"),
+        html: expect.stringContaining("Denní menu"),
         text: expect.stringContaining("Polévka"),
-        url: "https://restaurace-praha.cz"
+        url: "https://restaurace-praha.cz",
+        day: "Neděle"
       })
     );
   });
@@ -75,8 +87,8 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
   it("caches Czech menu result", async () => {
     mockedExtractMenu.mockResolvedValue({
       items: [
-        { name: "Hovězí vývar", price: 45 },
-        { name: "Svíčková", price: 145 }
+        { name: "Hovězí vývar", price: 45, category: "polévka" },
+        { name: "Svíčková", price: 145, category: "hlavní jídlo" }
       ]
     });
 
@@ -87,6 +99,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(200);
 
@@ -94,16 +107,15 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       "https://ceska-hospoda.cz",
       "2025-11-23"
     );
-    expect(cached).toEqual({
-      items: [
-        { name: "Hovězí vývar", price: 45 },
-        { name: "Svíčková", price: 145 }
-      ]
-    });
-    expect(cached.items[0].name).toBe("Hovězí vývar");
+    expect(cached).toHaveProperty("restaurant_name");
+    expect(cached).toHaveProperty("date", "2025-11-23");
+    expect(cached).toHaveProperty("day_of_week", "Neděle");
+    expect(cached).toHaveProperty("menu_items");
+    expect(cached.menu_items[0].name).toBe("Hovězí vývar");
+    expect(cached.menu_items[1].name).toBe("Svíčková");
   });
 
-  it("second call returns cached Czech menu with source: cache", async () => {
+  it("second call returns cached Czech menu", async () => {
     const requestBody = {
       url: "https://restaurant-u-fleku.cz",
       date: "2025-11-23"
@@ -111,6 +123,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(200);
 
@@ -118,14 +131,13 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(200);
 
-    expect(response.body).toHaveProperty("source", "cache");
-    expect(response.body).toHaveProperty("data");
-    expect(response.body.data).toEqual({
-      items: [{ name: "Polévka", price: 45 }]
-    });
+    expect(response.body.menu_items).toEqual([
+      { name: "Polévka", price: 45, category: "polévka" }
+    ]);
     
     expect(mockedScrape).not.toHaveBeenCalled();
     expect(mockedExtractMenu).not.toHaveBeenCalled();
@@ -138,6 +150,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(400);
 
@@ -154,6 +167,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(400);
 
@@ -169,6 +183,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(400);
 
@@ -178,7 +193,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
   it("handles multiple Czech restaurants with different menus", async () => {
     mockedExtractMenu.mockResolvedValue({
-      items: [{ name: "Guláš", price: 135 }]
+      items: [{ name: "Guláš", price: 135, category: "hlavní jídlo" }]
     });
 
     const request1 = {
@@ -193,20 +208,22 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response1 = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(request1)
       .expect(200);
 
     mockedExtractMenu.mockResolvedValue({
-      items: [{ name: "Vepřové s knedlíky", price: 125 }]
+      items: [{ name: "Vepřové s knedlíky", price: 125, category: "hlavní jídlo" }]
     });
 
     const response2 = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(request2)
       .expect(200);
 
-    expect(response1.body.data.items[0].name).toBe("Guláš");
-    expect(response2.body.data.items[0].name).toBe("Vepřové s knedlíky");
+    expect(response1.body.menu_items[0].name).toBe("Guláš");
+    expect(response2.body.menu_items[0].name).toBe("Vepřové s knedlíky");
   });
 
   it("returns 502 when scraper fails for Czech URL", async () => {
@@ -222,6 +239,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(502);
 
@@ -237,6 +255,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(400);
 
@@ -252,6 +271,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(400);
 
@@ -267,6 +287,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(400);
 
@@ -274,147 +295,264 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
     expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
   });
 
-  it("accepts valid http URL", async () => {
+  it("accepts both http and https URLs", async () => {
     mockedExtractMenu.mockResolvedValue({
-      items: [{ name: "Polévka", price: 45 }]
+      items: [{ name: "Polévka", price: 45, category: "polévka" }]
     });
 
-    const requestBody = {
+    // Test HTTP
+    const httpBody = {
       url: "http://restaurace.cz",
       date: "2025-11-23"
     };
 
-    const response = await request(app)
+    const httpResponse = await request(app)
       .post("/api/summarize")
-      .send(requestBody)
+      .set('x-api-key', TEST_API_KEY)
+      .send(httpBody)
       .expect(200);
 
-    expect(response.body).toHaveProperty("source");
-    expect(response.body).toHaveProperty("data");
-  });
+    expect(httpResponse.body).toHaveProperty("menu_items");
 
-  it("accepts valid https URL", async () => {
-    mockedExtractMenu.mockResolvedValue({
-      items: [{ name: "Polévka", price: 45 }]
-    });
-
-    const requestBody = {
+    // Test HTTPS
+    const httpsBody = {
       url: "https://secure-restaurace.cz",
       date: "2025-11-23"
     };
 
-    const response = await request(app)
+    const httpsResponse = await request(app)
       .post("/api/summarize")
-      .send(requestBody)
+      .set('x-api-key', TEST_API_KEY)
+      .send(httpsBody)
       .expect(200);
 
-    expect(response.body).toHaveProperty("source");
-    expect(response.body).toHaveProperty("data");
+    expect(httpsResponse.body).toHaveProperty("menu_items");
   });
 
-  it("handles array of 2 URLs and returns array of results", async () => {
+  it("filters menu items by preferences and returns recommendedMeal", async () => {
     mockedScrape
-      .mockResolvedValueOnce({
-        html: "<p>Restaurace 1</p>",
-        text: "Restaurace 1"
-      })
-      .mockResolvedValueOnce({
-        html: "<p>Restaurace 2</p>",
-        text: "Restaurace 2"
-      });
-
-    mockedExtractMenu
-      .mockResolvedValueOnce({
-        items: [{ name: "Polévka 1", price: 45 }]
-      })
-      .mockResolvedValueOnce({
-        items: [{ name: "Polévka 2", price: 55 }]
-      });
+    mockedExtractMenu.mockResolvedValue({
+      items: [
+        { name: "Hovězí vývar", price: 45, allergens: ["1", "3"], category: "polévka" },
+        { name: "Svíčková", price: 145, allergens: ["1", "7"], category: "hlavní jídlo" },
+        { name: "Guláš", price: 135, allergens: null, category: "hlavní jídlo" },
+        { name: "Dezert", price: 85, allergens: ["7"], category: "dezert" }
+      ]
+    });
+    mockedExtractRestaurantName.mockResolvedValue("Test Restaurace");
 
     const requestBody = {
-      url: ["https://restaurace1.cz", "https://restaurace2.cz"],
-      date: "2025-11-23"
+      url: "https://restaurace.cz",
+      date: "2025-11-23",
+      preferences: {
+        price: 150,
+        allergens: [7]
+      }
     };
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(200);
 
-    expect(response.body).toHaveProperty("source", "fresh");
-    expect(response.body).toHaveProperty("data");
-    expect(Array.isArray(response.body.data)).toBe(true);
-    expect(response.body.data).toHaveLength(2);
-    expect(response.body.data[0]).toHaveProperty("url", "https://restaurace1.cz");
-    expect(response.body.data[0]).toHaveProperty("items");
-    expect(response.body.data[0].items[0]).toHaveProperty("name", "Polévka 1");
-    expect(response.body.data[1]).toHaveProperty("url", "https://restaurace2.cz");
-    expect(response.body.data[1].items[0]).toHaveProperty("name", "Polévka 2");
+    // Should filter out items with allergen 7 (Svíčková, Dezert)
+    // Should keep items with price <= 150 and no allergen 7
+    expect(response.body).toHaveProperty("menu_items");
+    expect(response.body.menu_items).toHaveLength(2);
+    expect(response.body.menu_items[0]).toHaveProperty("name", "Hovězí vývar");
+    expect(response.body.menu_items[1]).toHaveProperty("name", "Guláš");
+    
+    // recommendedMeal should be first matching item
+    expect(response.body).toHaveProperty("recommendedMeal", "Hovězí vývar");
   });
 
-  it("invalid URL inside array returns 400 with correct error code", async () => {
+  it("returns null recommendedMeal when no preferences provided", async () => {
+    mockedExtractMenu.mockResolvedValue({
+      items: [{ name: "Polévka", price: 45, category: "polévka" }]
+    });
+    mockedExtractRestaurantName.mockResolvedValue("Test Restaurace");
+
     const requestBody = {
-      url: ["https://restaurace1.cz", "invalid-url"],
+      url: "https://no-prefs-restaurace.cz",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body).toHaveProperty("recommendedMeal", null);
+  });
+
+  it("filters items by price only", async () => {
+    mockedExtractMenu.mockResolvedValue({
+      items: [
+        { name: "Cheap", price: 50, allergens: null, category: "polévka" },
+        { name: "Expensive", price: 200, allergens: null, category: "hlavní jídlo" }
+      ]
+    });
+    mockedExtractRestaurantName.mockResolvedValue("Test Restaurace");
+
+    const requestBody = {
+      url: "https://price-test-restaurace.cz",
+      date: "2025-11-23",
+      preferences: {
+        price: 100,
+        allergens: []
+      }
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body.menu_items).toHaveLength(1);
+    expect(response.body.menu_items[0]).toHaveProperty("name", "Cheap");
+    expect(response.body).toHaveProperty("recommendedMeal", "Cheap");
+  });
+
+  // Auth tests
+  it("returns 401 when API key is missing", async () => {
+    const requestBody = {
+      url: "https://restaurace.cz",
       date: "2025-11-23"
     };
 
     const response = await request(app)
       .post("/api/summarize")
       .send(requestBody)
-      .expect(400);
+      .expect(401);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
-    expect(response.body).toHaveProperty("message");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/auth/apiKeyMissing");
+    expect(response.body).toHaveProperty("message", "API key is required");
   });
 
-  it("empty array returns 400 with correct error code", async () => {
+  it("returns 401 when API key is invalid", async () => {
     const requestBody = {
-      url: [],
+      url: "https://restaurace.cz",
       date: "2025-11-23"
     };
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', 'wrong-api-key')
       .send(requestBody)
-      .expect(400);
+      .expect(401);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlArray");
-    expect(response.body).toHaveProperty("message");
+    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/auth/unauthorized");
+    expect(response.body).toHaveProperty("message", "Invalid or missing API key");
   });
 
-  it("mixture of cache and fresh returns source mixed", async () => {
-    await cacheService.saveMenuToCache(
-      "https://cached-restaurace.cz",
-      "2025-11-23",
-      { items: [{ name: "Cached Polévka", price: 40 }] }
+  it("accepts valid API key via Authorization Bearer header", async () => {
+    mockedExtractMenu.mockResolvedValue({
+      items: [{ name: "Polévka", price: 45, category: "polévka" }]
+    });
+    mockedExtractRestaurantName.mockResolvedValue("Test Restaurace");
+
+    const requestBody = {
+      url: "https://auth-test-restaurace.cz",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .set('Authorization', `Bearer ${TEST_API_KEY}`)
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body).toHaveProperty("menu_items");
+  });
+
+  it("skips LLM extraction for à la carte menu (no daily menu indicators)", async () => {
+    // Mock page that contains ONLY à la carte menu (no daily menu keywords)
+    mockedScrape.mockResolvedValue({
+      html: "<html><body><h1>Jídelní lístek</h1><h2>Stálá nabídka</h2><p>Polévka 45,-</p><p>Hlavní jídlo 150,-</p></body></html>",
+      text: "Jídelní lístek Stálá nabídka Polévka 45,- Hlavní jídlo 150,-"
+    });
+
+    mockedExtractRestaurantName.mockResolvedValue("À la Carte Restaurant");
+
+    const requestBody = {
+      url: "https://alacarte-restaurace.cz",
+      date: "2025-11-23"
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
+      .send(requestBody)
+      .expect(200);
+
+    // Should return empty menu with no_daily_menu status
+    expect(response.body).toHaveProperty("restaurant_name", "À la Carte Restaurant");
+    expect(response.body).toHaveProperty("menu_items", []);
+    expect(response.body).toHaveProperty("extraction_status", "no_daily_menu");
+    expect(response.body).toHaveProperty("recommendedMeal", null);
+
+    // LLM menu extraction should NOT have been called (cost-saving)
+    expect(mockedExtractMenu).not.toHaveBeenCalled();
+
+    // But restaurant name extraction should still be called
+    expect(mockedExtractRestaurantName).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://alacarte-restaurace.cz"
+      })
     );
+  });
 
-    mockedScrape.mockResolvedValueOnce({
-      html: "<p>Fresh restaurace</p>",
-      text: "Fresh restaurace"
+  it("returns no_daily_menu status when LLM extracts empty menu", async () => {
+    // LLM successfully runs but returns no items (e.g., page says "no daily menu today")
+    mockedExtractMenu.mockResolvedValue({
+      items: []
     });
-
-    mockedExtractMenu.mockResolvedValueOnce({
-      items: [{ name: "Fresh Polévka", price: 50 }]
-    });
+    mockedExtractRestaurantName.mockResolvedValue("Test Restaurant");
 
     const requestBody = {
-      url: ["https://cached-restaurace.cz", "https://fresh-restaurace.cz"],
+      url: "https://no-menu-today.cz",
       date: "2025-11-23"
     };
 
     const response = await request(app)
       .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
       .send(requestBody)
       .expect(200);
 
-    expect(response.body).toHaveProperty("source", "mixed");
-    expect(response.body).toHaveProperty("data");
-    expect(Array.isArray(response.body.data)).toBe(true);
-    expect(response.body.data).toHaveLength(2);
-    expect(response.body.data[0]).toHaveProperty("url", "https://cached-restaurace.cz");
-    expect(response.body.data[0].items[0]).toHaveProperty("name", "Cached Polévka");
-    expect(response.body.data[1]).toHaveProperty("url", "https://fresh-restaurace.cz");
-    expect(response.body.data[1].items[0]).toHaveProperty("name", "Fresh Polévka");
+    expect(response.body).toHaveProperty("extraction_status", "no_daily_menu");
+    expect(response.body.menu_items).toEqual([]);
+    expect(mockedExtractMenu).toHaveBeenCalled(); // LLM WAS called this time
+  });
+
+  it("filters items with only allergen preferences (no price)", async () => {
+    mockedExtractMenu.mockResolvedValue({
+      items: [
+        { name: "Safe", price: 100, allergens: null, category: "polévka" },
+        { name: "Unsafe", price: 100, allergens: ["7"], category: "hlavní jídlo" }
+      ]
+    });
+    mockedExtractRestaurantName.mockResolvedValue("Test Restaurace");
+
+    const requestBody = {
+      url: "https://allergen-test.cz",
+      date: "2025-11-23",
+      preferences: {
+        allergens: [7]
+      }
+    };
+
+    const response = await request(app)
+      .post("/api/summarize")
+      .set('x-api-key', TEST_API_KEY)
+      .send(requestBody)
+      .expect(200);
+
+    expect(response.body.menu_items).toHaveLength(1);
+    expect(response.body.menu_items[0].name).toBe("Safe");
+    expect(response.body.recommendedMeal).toBe("Safe");
   });
 });

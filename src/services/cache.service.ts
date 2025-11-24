@@ -2,9 +2,17 @@ import sqlite3 from "sqlite3";
 import { open, Database } from "sqlite";
 import { logger } from "../utils/logger";
 import { CacheErrors } from "../errors";
+import { LOG_SOURCES, LOG_MESSAGES } from "../constants/log";
 
 export class CacheService {
-  private db: Database | null = null;
+  private db?: Database;
+
+  private getDb(): Database {
+    if (!this.db) {
+      throw new CacheErrors.NotInitializedError();
+    }
+    return this.db;
+  }
 
   async init(filename: string = "./cache.db"): Promise<void> {
     try {
@@ -28,7 +36,7 @@ export class CacheService {
         CREATE INDEX IF NOT EXISTS idx_url_date ON menu_cache(url, date);
       `);
 
-      logger.system("Cache initialized", { db: filename });
+      logger.system(LOG_MESSAGES.CACHE_INITIALIZED, { db: filename });
     } catch (error) {
       if (error instanceof Error) {
         throw new CacheErrors.InitFailedError({ reason: error.message });
@@ -38,20 +46,19 @@ export class CacheService {
   }
 
   async getCachedMenu(url: string, date: string): Promise<any | null> {
-    this.ensureInitialized();
-
     try {
-      const row = await this.db!.get(
+      const db = this.getDb();
+      const row = await db.get(
         "SELECT data FROM menu_cache WHERE url = ? AND date = ?",
         [url, date]
       );
 
       if (!row) {
-        logger.info("CACHE", "Cache miss", { url, date });
+        logger.info(LOG_SOURCES.CACHE, LOG_MESSAGES.CACHE_MISS, { url, date });
         return null;
       }
 
-      logger.info("CACHE", "Cache hit", { url, date });
+      logger.info(LOG_SOURCES.CACHE, LOG_MESSAGES.CACHE_HIT, { url, date });
       return JSON.parse(row.data);
     } catch (error) {
       if (error instanceof Error) {
@@ -62,16 +69,15 @@ export class CacheService {
   }
 
   async saveMenuToCache(url: string, date: string, data: any): Promise<void> {
-    this.ensureInitialized();
-
     try {
+      const db = this.getDb();
       const jsonData = JSON.stringify(data);
-      await this.db!.run(
+      await db.run(
         `INSERT OR REPLACE INTO menu_cache (url, date, data, created_at) VALUES (?, ?, ?, datetime('now'))`,
         [url, date, jsonData]
       );
 
-      logger.info("CACHE", "Saved to cache", { url, date });
+      logger.info(LOG_SOURCES.CACHE, LOG_MESSAGES.SAVED_TO_CACHE, { url, date });
     } catch (error) {
       if (error instanceof Error) {
         throw new CacheErrors.WriteFailedError({ reason: error.message, url, date });
@@ -81,19 +87,13 @@ export class CacheService {
   }
 
   async invalidateOldRecords(): Promise<void> {
-    this.ensureInitialized();
-
-    // TODO: Consider invalidating based on the menu date field instead of created_at
-    // TODO: Add configurable retention period (e.g., keep 7 days of history)
-    // TODO: Add manual invalidation method for specific URLs or dates
-    // TODO: Add cache statistics (size, hit rate, etc.)
-
     try {
-      const result = await this.db!.run(
+      const db = this.getDb();
+      const result = await db.run(
         "DELETE FROM menu_cache WHERE created_at < datetime('now', '-1 day')"
       );
 
-      logger.info("CACHE", "Invalidated old records", { count: result.changes });
+      logger.info(LOG_SOURCES.CACHE, LOG_MESSAGES.INVALIDATED_OLD_RECORDS, { count: result.changes });
     } catch (error) {
       if (error instanceof Error) {
         throw new CacheErrors.InvalidateFailedError({ reason: error.message });
@@ -106,19 +106,14 @@ export class CacheService {
     if (this.db) {
       try {
         await this.db.close();
-        this.db = null;
+        this.db = undefined;
+        logger.system(LOG_MESSAGES.CACHE_DATABASE_CLOSED);
       } catch (error) {
         if (error instanceof Error) {
           throw new CacheErrors.CloseFailedError({ reason: error.message });
         }
         throw new CacheErrors.CloseFailedError();
       }
-    }
-  }
-
-  private ensureInitialized(): void {
-    if (!this.db) {
-      throw new CacheErrors.NotInitializedError();
     }
   }
 }

@@ -1,4 +1,4 @@
-import { CacheService } from "../../src/services/cache";
+import { CacheService } from "../../src/services/cache.service";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -31,30 +31,40 @@ describe("Cache Service - Czech Data", () => {
   it("saveMenuToCache() inserts Czech menu data", async () => {
     const url = "https://restaurace.cz";
     const date = "2025-11-23";
-    const data = { 
-      items: [
+    const data = {
+      restaurant_name: "Test Restaurace",
+      date: "2025-11-23",
+      day_of_week: "Neděle",
+      menu_items: [
         { name: "Polévka", price: 45 },
         { name: "Svíčková", price: 145 }
-      ] 
+      ],
+      extraction_status: "success" as const,
+      recommendedMeal: null
     };
 
     await cacheService.saveMenuToCache(url, date, data);
 
     const retrieved = await cacheService.getCachedMenu(url, date);
     expect(retrieved).toEqual(data);
-    expect(retrieved.items[0].name).toBe("Polévka");
-    expect(retrieved.items[1].name).toBe("Svíčková");
+    expect(retrieved.menu_items[0].name).toBe("Polévka");
+    expect(retrieved.menu_items[1].name).toBe("Svíčková");
   });
 
   it("getCachedMenu() returns inserted Czech data", async () => {
     const url = "https://ceska-restaurace.cz";
     const date = "2025-11-23";
     const data = {
-      items: [
-        { name: "Hovězí vývar s nudlemi", price: 45, description: "Tradiční česká polévka" },
-        { name: "Vepřové s knedlíky", price: 125, description: "Pečené vepřové maso" },
-        { name: "Guláš", price: 135, description: "Maďarský guláš s cibulí" }
-      ]
+      restaurant_name: "Česká Restaurace",
+      date: "2025-11-23",
+      day_of_week: "Neděle",
+      menu_items: [
+        { name: "Hovězí vývar s nudlemi", price: 45 },
+        { name: "Vepřové s knedlíky", price: 125 },
+        { name: "Guláš", price: 135 }
+      ],
+      extraction_status: "success" as const,
+      recommendedMeal: null
     };
 
     await cacheService.saveMenuToCache(url, date, data);
@@ -62,10 +72,10 @@ describe("Cache Service - Czech Data", () => {
     const result = await cacheService.getCachedMenu(url, date);
 
     expect(result).toEqual(data);
-    expect(result.items).toHaveLength(3);
-    expect(result.items[0].name).toBe("Hovězí vývar s nudlemi");
-    expect(result.items[1].name).toBe("Vepřové s knedlíky");
-    expect(result.items[2].name).toBe("Guláš");
+    expect(result.menu_items).toHaveLength(3);
+    expect(result.menu_items[0].name).toBe("Hovězí vývar s nudlemi");
+    expect(result.menu_items[1].name).toBe("Vepřové s knedlíky");
+    expect(result.menu_items[2].name).toBe("Guláš");
   });
 
   it("getCachedMenu() returns null for missing data", async () => {
@@ -80,7 +90,14 @@ describe("Cache Service - Czech Data", () => {
   it("invalidateOldRecords() deletes old entries", async () => {
     const url = "https://restaurace.cz";
     const date = "2025-11-23";
-    const data = { items: [{ name: "Polévka", price: 45 }] };
+    const data = {
+      restaurant_name: "Test",
+      date: "2025-11-23",
+      day_of_week: "Neděle",
+      menu_items: [{ name: "Polévka", price: 45 }],
+      extraction_status: "success" as const,
+      recommendedMeal: null
+    };
 
     await cacheService.saveMenuToCache(url, date, data);
 
@@ -95,8 +112,22 @@ describe("Cache Service - Czech Data", () => {
     const url2 = "https://hospoda-na-rohu.cz";
     const date = "2025-11-23";
     
-    const data1 = { items: [{ name: "Polévka", price: 45 }] };
-    const data2 = { items: [{ name: "Guláš", price: 135 }] };
+    const data1 = {
+      restaurant_name: "U Fleků",
+      date: "2025-11-23",
+      day_of_week: "Neděle",
+      menu_items: [{ name: "Polévka", price: 45 }],
+      extraction_status: "success" as const,
+      recommendedMeal: null
+    };
+    const data2 = {
+      restaurant_name: "Hospoda Na Rohu",
+      date: "2025-11-23",
+      day_of_week: "Neděle",
+      menu_items: [{ name: "Guláš", price: 135 }],
+      extraction_status: "success" as const,
+      recommendedMeal: null
+    };
 
     await cacheService.saveMenuToCache(url1, date, data1);
     await cacheService.saveMenuToCache(url2, date, data2);
@@ -104,7 +135,7 @@ describe("Cache Service - Czech Data", () => {
     const result1 = await cacheService.getCachedMenu(url1, date);
     const result2 = await cacheService.getCachedMenu(url2, date);
 
-    expect(result1.items[0].name).toBe("Polévka");
-    expect(result2.items[0].name).toBe("Guláš");
+    expect(result1.menu_items[0].name).toBe("Polévka");
+    expect(result2.menu_items[0].name).toBe("Guláš");
   });
 });
