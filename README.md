@@ -1,6 +1,6 @@
 # Restaurant Menu Summarizer
 
-Node.js backend API pro extrakci a sumarizaci jídelních lístků pomocí LLM.
+Node.js backend API for extracting and summarizing restaurant menus using LLM.
 
 ## 🚀 Setup
 
@@ -12,26 +12,26 @@ npm install
 
 ### 2. Configure environment variables
 
-Vytvoř soubor `.env` podle `.env.example`:
+Create a `.env` file based on `.env.example`:
 
 ```bash
 cp .env.example .env
 ```
 
-Vyplň následující proměnné:
+Fill in the following variables:
 
 ```env
-# OpenAI API key pro extrakci menu
+# OpenAI API key for menu extraction
 OPENAI_API_KEY=your_openai_api_key_here
 
-# API Key pro autentizaci endpointu
+# API Key for endpoint authentication
 API_KEY=your_secret_api_key_here
 
 # Logging level
 LOG_LEVEL=info
 ```
 
-**Vygenerovat API klíč:**
+**Generate API key:**
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
@@ -49,6 +49,11 @@ npm run build
 npm start
 ```
 
+**Docker:**
+```bash
+docker compose up --build
+```
+
 ### 4. Run tests
 
 ```bash
@@ -61,9 +66,9 @@ npm test
 
 ### POST `/api/summarize`
 
-Extrahuje menu z URL restaurace pro zadané datum.
+Extracts menu from restaurant URL for the specified date.
 
-**Authentication:** Vyžaduje API key v headeru `x-api-key` nebo `Authorization: Bearer <key>`
+**Authentication:** Requires API key in `x-api-key` header or `Authorization: Bearer <key>`
 
 **Request:**
 ```json
@@ -114,7 +119,7 @@ curl -X POST http://localhost:3000/api/summarize \
 
 - **Node.js** + **TypeScript**
 - **Express** - REST API framework
-- **OpenAI API** - LLM pro extrakci menu
+- **OpenAI API** - LLM for menu extraction
 - **Cheerio** - HTML parsing
 - **SQLite** - Persistent caching
 - **Zod** - Input validation
@@ -171,6 +176,43 @@ tests/
 ✅ API key authentication  
 ✅ Comprehensive error handling  
 ✅ Unit + integration tests  
+✅ Docker support  
+
+---
+
+## 🌐 Web Content Retrieval Method
+
+**Selected method: Cheerio**
+
+Since the entire project is built in Node.js, I immediately excluded BeautifulSoup, which belongs to the Python ecosystem.
+
+This left me with three options: Cheerio, Puppeteer, and Playwright.
+
+Puppeteer and Playwright are headless browsers and make sense if you need to handle complex pages, JavaScript rendering, or anti-bot protection.
+
+However, in this assignment, we only need simple HTML downloading and passing text to an AI model for extraction.
+
+This is not complex business logic, so using an entire Chrome instance as the main scraper would be unnecessary and would lead to unnecessary overhead in both performance and Docker image size.
+
+Therefore, I chose Cheerio – the implementation is fast, simple, reliable, and perfectly sufficient for the purpose of this LLM-first project.
+
+---
+
+## 💭 Project Considerations
+
+I focused on creating a clean, maintainable architecture with clear separation of concerns. Services are implemented as class-based modules with single exported instances, making the codebase testable and easy to understand. I prioritized code readability through consistent naming conventions, extracted constants for magic numbers, and added comments where logic is complex. The two-step LLM extraction pipeline (raw extraction → price normalization) provides better control and error handling, while the tool calling implementation demonstrates understanding of OpenAI's function calling capabilities, even though post-processing would be simpler. Input validation using Zod as a single source of truth ensures type safety at runtime, and structured error handling with custom error classes provides clear, actionable feedback. The pre-check mechanism for daily menu indicators is a practical cost optimization that prevents expensive LLM calls on à la carte menu pages, showing real-world thinking about API costs and efficiency.
+
+Beyond core functionality, I added features that provide real user value: preferences filtering by price and allergens allows users to find meals that match their dietary needs and budget constraints, and the recommended meal feature suggests the first matching item. The caching strategy using SQLite with URL+date keys ensures repeated requests don't trigger unnecessary LLM calls, while the TTL mechanism (1-day invalidation) keeps the cache fresh. Several edge cases are handled gracefully: empty menus return `extraction_status: "no_daily_menu"` rather than errors, invalid URLs are caught early with Zod validation, and LLM failures propagate proper error codes. However, some scenarios could be improved: handling image-only menus would require OCR integration, holiday detection could prevent requests to closed restaurants, and real-time menu updates during the day aren't currently supported (cache is date-based, not time-based). For production use, I would consider adding rate limiting, request queuing for high-traffic scenarios, webhook notifications for menu changes, and potentially a more sophisticated caching strategy with Redis for distributed deployments. The current implementation prioritizes simplicity, correctness, and maintainability over advanced features, which aligns well with the assignment scope.
+
+---
+
+## 🧪 Test URLs
+
+For testing purposes, you can use these restaurant URLs:
+
+- **https://www.ukaplickychrudim.cz/menu/tydenni-menu/** - Weekly menu with daily items
+- **https://www.nejendvorek.cz/jidelni-listek** - Daily menu with structured format
+- **https://www.tlustakachna.cz/jidelni-listek/** - À la carte menu only (no daily menu) - used to test the pre-check functionality that skips LLM calls for non-daily menu pages
 
 ---
 
@@ -187,9 +229,9 @@ npm test -- tests/unit/llm.test.ts
 npm test -- --coverage
 ```
 
-**Test suites:** 6  
-**Tests:** 55  
-**Coverage:** Unit + Integration
+**Test suites:** 7  
+**Tests:** 80  
+**Coverage:** Unit + Integration (~90%+)
 
 ---
 
@@ -214,4 +256,3 @@ npm test -- --coverage
 ## 📄 License
 
 MIT
-
