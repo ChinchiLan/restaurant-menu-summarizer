@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { Chat } from "openai/resources";
 import {logger} from "../utils/logger";
 import {LLMErrors, MenuSchemaErrors} from "../errors";
 import {LOG_MESSAGES, LOG_SOURCES} from "../constants/log";
@@ -99,9 +100,32 @@ export class LLMService {
   }
 
   /**
+   * Tool definition for price normalization (OpenAI function calling)
+   */
+  private getNormalizePriceTool() {
+    return {
+      type: "function" as const,
+      function: {
+        name: "normalizePrice",
+        description: "Normalize Czech price format to a number. Handles formats like '145,-', '145 Kč', '145,50', '145.50' and converts them to numeric values.",
+        parameters: {
+          type: "object",
+          properties: {
+            raw: {
+              type: "string",
+              description: "Price string in Czech format (e.g., '145,-', '145 Kč', '145,50', '145.50')"
+            }
+          },
+          required: ["raw"]
+        }
+      }
+    };
+  }
+
+  /**
    * Step 1 of 2-step extraction pipeline: Extract raw menu items from HTML/text
-   * Uses LLM to identify daily menu items with raw (non-normalized) prices
-   * NO tool calling here - pure extraction only
+   * Uses LLM with tool calling for price normalization
+   * LLM can call normalizePrice tool to normalize prices during extraction
    */
   private async extractMenuRaw(content: { html: string; text: string; url: string; day: string }): Promise<RawMenuResponse> {
     const client = this.getOpenAIClient();
@@ -113,44 +137,84 @@ export class LLMService {
     const truncatedText = content.text.substring(0, LLM_CONTENT_LIMITS.MAX_MENU_TEXT_LENGTH);
     const truncatedHtml = content.html.substring(0, LLM_CONTENT_LIMITS.MAX_MENU_HTML_LENGTH);
 
+    const messages: Chat.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: MENU_EXTRACTION_SYSTEM_PROMPT
+      },
+      {
+        role: "user",
+        content: buildMenuExtractionUserPrompt(content.day, content.url, truncatedText, truncatedHtml)
+      }
+    ];
+
     try {
-      const response = await client.chat.completions.create({
-        model: LLM_CONFIG.MENU_EXTRACTION_MODEL,
-        messages: [
-          {
-            role: "system",
-            content: MENU_EXTRACTION_SYSTEM_PROMPT
-          },
-          {
-            role: "user",
-            content: buildMenuExtractionUserPrompt(content.day, content.url, truncatedText, truncatedHtml)
+      // Tool calling loop: LLM can call normalizePrice tool multiple times
+      let maxIterations = 5; // Prevent infinite loops
+      let finalResponse: any = null;
+
+      while (maxIterations > 0) {
+        const response = await client.chat.completions.create({
+          model: LLM_CONFIG.MENU_EXTRACTION_MODEL,
+          messages: messages,
+          tools: [this.getNormalizePriceTool()],
+          tool_choice: "auto", // Let LLM decide when to call the tool
+          response_format: { type: "json_object" }, // Ensures structured JSON output
+          temperature: LLM_CONFIG.TEMPERATURE
+        });
+
+        const message = response.choices[0].message;
+        messages.push(message);
+
+        // If LLM called a tool, execute it and add result to messages
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          for (const toolCall of message.tool_calls) {
+            if (toolCall.type === "function" && toolCall.function.name === "normalizePrice") {
+              const args = JSON.parse(toolCall.function.arguments);
+              const normalizedPrice = this.normalizePrice(args.raw);
+              
+              logger.debug(LOG_SOURCES.LLM, LOG_MESSAGES.PRICE_NORMALIZED, {
+                from: args.raw,
+                to: normalizedPrice,
+                toolCallId: toolCall.id
+              });
+
+              // Add tool result to messages for next iteration
+              messages.push({
+                role: "tool",
+                content: JSON.stringify({ normalized: normalizedPrice }),
+                tool_call_id: toolCall.id
+              });
+            }
           }
-        ],
-        response_format: { type: "json_object" }, // Ensures structured JSON output
-        temperature: LLM_CONFIG.TEMPERATURE
-      });
+          maxIterations--;
+          continue; // Continue loop to get final response from LLM
+        }
 
-      const message = response.choices[0].message;
-
-      if (!message.content) {
-        logger.error(LOG_SOURCES.LLM, LOG_MESSAGES.INVALID_JSON_RETURNED, { url: content.url });
-        throw new LLMErrors.InvalidJsonError({ url: content.url });
+        // LLM returned final response (no tool calls)
+        if (message.content) {
+          try {
+            finalResponse = JSON.parse(message.content);
+            break; // Exit loop, we have the final response
+          } catch (error) {
+            logger.error(LOG_SOURCES.LLM, LOG_MESSAGES.JSON_PARSE_FAILED, { url: content.url });
+            throw new LLMErrors.InvalidJsonError({ url: content.url });
+          }
+        } else {
+          logger.error(LOG_SOURCES.LLM, LOG_MESSAGES.INVALID_JSON_RETURNED, { url: content.url });
+          throw new LLMErrors.InvalidJsonError({ url: content.url });
+        }
       }
 
-      // Parse and validate JSON response
-      let parsed: any;
-      try {
-        parsed = JSON.parse(message.content);
-      } catch (error) {
-        logger.error(LOG_SOURCES.LLM, LOG_MESSAGES.JSON_PARSE_FAILED, { url: content.url });
-        throw new LLMErrors.InvalidJsonError({ url: content.url });
+      if (!finalResponse) {
+        throw new LLMErrors.ExtractionFailedError({ url: content.url, reason: "Max iterations reached" });
       }
 
-      this.validateRawMenuResponse(parsed, content.url);
+      this.validateRawMenuResponse(finalResponse, content.url);
 
-      logger.info(LOG_SOURCES.LLM, LOG_MESSAGES.EXTRACTION_SUCCESSFUL, { url: content.url, count: parsed.items.length });
+      logger.info(LOG_SOURCES.LLM, LOG_MESSAGES.EXTRACTION_SUCCESSFUL, { url: content.url, count: finalResponse.items.length });
 
-      return parsed as RawMenuResponse;
+      return finalResponse as RawMenuResponse;
 
     } catch (error) {
       if (error instanceof LLMErrors.InvalidJsonError || error instanceof MenuSchemaErrors.InvalidSchemaError) {
@@ -166,21 +230,29 @@ export class LLMService {
 
   /**
    * Step 2 of 2-step extraction pipeline: Normalize raw prices to numbers
-   * Converts strings like "45,-", "45,50 Kč" to numeric values (45, 45.5)
-   * This is done post-extraction to keep LLM extraction simple
+   * Fallback normalization for prices that weren't normalized via tool calling
+   * LLM may have already normalized some prices via normalizePrice tool, but we ensure all are normalized
    */
   private async normalizePrices(rawMenu: RawMenuResponse, url: string): Promise<MenuResponse> {
     const normalizedItems: MenuItem[] = [];
 
     for (const item of rawMenu.items) {
-      const normalizedPrice = this.normalizePrice(item.price);
-      
-      // Log price normalization for debugging
-      if (item.price !== undefined && item.price !== null) {
-        logger.debug(LOG_SOURCES.LLM, LOG_MESSAGES.PRICE_NORMALIZED, { 
-          from: item.price, 
-          to: normalizedPrice 
-        });
+      // If price is already a number (normalized by tool calling), use it directly
+      // Otherwise, normalize it as fallback
+      let normalizedPrice: number;
+      if (typeof item.price === "number") {
+        normalizedPrice = item.price;
+      } else {
+        normalizedPrice = this.normalizePrice(item.price);
+        
+        // Log fallback normalization for debugging
+        if (item.price !== undefined && item.price !== null) {
+          logger.debug(LOG_SOURCES.LLM, LOG_MESSAGES.PRICE_NORMALIZED, { 
+            from: item.price, 
+            to: normalizedPrice,
+            method: "fallback"
+          });
+        }
       }
 
       normalizedItems.push({
@@ -278,8 +350,8 @@ export class LLMService {
 
   /**
    * Main extraction function: orchestrates 2-step pipeline
-   * Step 1: Extract raw menu (NO tools)
-   * Step 2: Normalize prices (WITH tool calling logic)
+   * Step 1: Extract raw menu WITH tool calling (normalizePrice tool)
+   * Step 2: Fallback normalization for any prices not normalized by tool calling
    */
   async extractMenu(content: { html: string; text: string; url: string; day: string }): Promise<MenuResponse> {
     const rawMenu = await this.extractMenuRaw(content);

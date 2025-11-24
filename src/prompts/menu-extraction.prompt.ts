@@ -72,9 +72,21 @@ Example Input → Expected Output:
 }
 
 ======================
+PRICE NORMALIZATION
+======================
+When extracting prices, you can use the normalizePrice tool to convert Czech price formats to numbers.
+Examples:
+- "145,-" → call normalizePrice("145,-") → returns 145
+- "145 Kč" → call normalizePrice("145 Kč") → returns 145
+- "145,50" → call normalizePrice("145,50") → returns 145.5
+
+You can return prices as strings in the JSON, then use the normalizePrice tool to normalize them.
+After normalization, include the normalized numeric price in your final JSON response.
+
+======================
 IMPORTANT
 ======================
-Return IMMEDIATELY the JSON object. NEVER call any tools.`;
+Return the JSON object with normalized prices. Use the normalizePrice tool when you encounter price strings that need normalization.`;
 
 export function buildMenuExtractionUserPrompt(
   day: string,
