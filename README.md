@@ -182,19 +182,27 @@ tests/
 
 ## 🌐 Web Content Retrieval Method
 
-**Selected method: Cheerio**
+**Selected variant: Variant A - Custom Scraper (Cheerio)**
 
-Since the entire project is built in Node.js, I immediately excluded BeautifulSoup, which belongs to the Python ecosystem.
+The assignment offered two approaches:
+- **Variant A:** Custom scraper (Cheerio, Puppeteer, Playwright, BeautifulSoup)
+- **Variant B:** LLM built-in search/web fetch (Claude web search, Perplexity API)
 
-This left me with three options: Cheerio, Puppeteer, and Playwright.
+I chose **Variant A (custom scraper)** over LLM web fetch because:
 
-Puppeteer and Playwright are headless browsers and make sense if you need to handle complex pages, JavaScript rendering, or anti-bot protection.
+- **Reliability:** LLM web fetch APIs are inconsistent – sometimes return empty results, irrelevant content, or fail to find the correct page. Custom scraper provides predictable, repeatable results.
+- **Cost efficiency:** LLM web fetch requires two LLM calls (fetch + extract), while custom scraper uses free HTTP requests and only one LLM call for extraction.
+- **Control:** Direct access to raw HTML ensures we get exactly what's on the page, with full control over error handling and content extraction.
+- **Dependencies:** Custom scraper has no external API dependencies or rate limits beyond the restaurant website itself.
 
-However, in this assignment, we only need simple HTML downloading and passing text to an AI model for extraction.
+**Why Cheerio specifically?**
 
-This is not complex business logic, so using an entire Chrome instance as the main scraper would be unnecessary and would lead to unnecessary overhead in both performance and Docker image size.
+Since the project is built in Node.js, BeautifulSoup (Python) was excluded. Between Cheerio, Puppeteer, and Playwright, I chose Cheerio because:
 
-Therefore, I chose Cheerio – the implementation is fast, simple, reliable, and perfectly sufficient for the purpose of this LLM-first project.
+- Puppeteer/Playwright are headless browsers – overkill for simple HTML downloading
+- We only need static HTML parsing, not JavaScript rendering or anti-bot protection
+- Cheerio is lightweight, fast, and sufficient for extracting text content from static pages
+- Reduces Docker image size and performance overhead compared to full browser instances
 
 ---
 
