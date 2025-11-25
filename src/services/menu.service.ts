@@ -8,6 +8,7 @@ import { SummarizeInputSchema } from "../validators/summarize.schema";
 import { z } from "zod";
 import { LOG_SOURCES, LOG_MESSAGES } from "../constants/log";
 import { SummarizeRequest, SummarizeResponse, RestaurantMenu } from "../types/api.types";
+import { retry } from "../utils/retry";
 
 export class MenuService {
   /**
@@ -79,18 +80,18 @@ export class MenuService {
       });
 
       // Still extract restaurant name, but skip expensive LLM menu extraction
-      const restaurantName = await llmService.extractRestaurantName({
+      const restaurantName = await retry(() => llmService.extractRestaurantName({
         html: scraped.html,
         text: scraped.text,
         url: url
-      });
+      }));
 
       const emptyMenu: RestaurantMenu = {
         restaurant_name: restaurantName,
         date: date,
         day_of_week: day,
         menu_items: [],
-        extraction_status: "no_daily_menu",
+        daily_menu: false,
         recommendedMeal: null
       };
 
@@ -98,31 +99,29 @@ export class MenuService {
       return emptyMenu;
     }
 
-    let menuResponse: MenuResponse;
-    let restaurantName: string;
-    let extractionStatus: "success" | "no_daily_menu";
-
-    // Extract menu items and restaurant name using LLM
+    // Parallelize LLM calls for better performance
+    // Extract menu items and restaurant name simultaneously
     logger.info(LOG_SOURCES.SUMMARIZE, LOG_MESSAGES.LLM_EXTRACTION_STARTED, { url });
-    menuResponse = await llmService.extractMenu({
-      html: scraped.html,
-      text: scraped.text,
-      url: url,
-      day: day
-    });
+    
+    const [menuResponse, restaurantName] = await Promise.all([
+      retry(() => llmService.extractMenu({
+        html: scraped.html,
+        text: scraped.text,
+        url: url,
+        day: day
+      })),
+      retry(() => llmService.extractRestaurantName({
+        html: scraped.html,
+        text: scraped.text,
+        url: url
+      }))
+    ]);
 
-    restaurantName = await llmService.extractRestaurantName({
-      html: scraped.html,
-      text: scraped.text,
-      url: url
-    });
-
-    // Determine if we found a daily menu or not
-    if (menuResponse.items.length === 0) {
-      extractionStatus = "no_daily_menu";
+    // Determine if we found a daily menu based on items count
+    const dailyMenu = menuResponse.items.length > 0;
+    
+    if (!dailyMenu) {
       logger.info(LOG_SOURCES.SUMMARIZE, LOG_MESSAGES.NO_DAILY_MENU_FOUND, { url });
-    } else {
-      extractionStatus = "success";
     }
 
     // Apply preferences filtering if provided, otherwise return all items
@@ -141,7 +140,7 @@ export class MenuService {
       date: date,
       day_of_week: day,
       menu_items: finalItems,
-      extraction_status: extractionStatus,
+      daily_menu: dailyMenu,
       recommendedMeal
     };
 
@@ -151,7 +150,7 @@ export class MenuService {
       date: date,
       day_of_week: day,
       menu_items: menuResponse.items,
-      extraction_status: extractionStatus,
+      daily_menu: dailyMenu,
       recommendedMeal: null
     };
 

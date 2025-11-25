@@ -60,3 +60,9 @@ export const LOG_MESSAGES = {
   // Error mapper messages
   UNKNOWN_ERROR: "Unknown error"
 } as const;
+
+export const SERVER_CONFIG = {
+  REQUEST_TIMEOUT_MS: 60000, // 60 seconds
+  JSON_BODY_LIMIT: "2mb",
+  DEFAULT_PORT: 3000
+} as const;

@@ -64,12 +64,12 @@ describe("Auth Middleware", () => {
 
     requireApiKey(req as Request, res as Response, next);
 
-    expect(next).not.toHaveBeenCalled();
-    expect(statusMock).toHaveBeenCalledWith(401);
-    expect(jsonMock).toHaveBeenCalledWith({
-      error: "restaurantMenuSummarizer/auth/apiKeyMissing",
-      message: "API key is required"
-    });
+    // Auth middleware now uses next(error) to pass to global error handler
+    expect(next).toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const errorArg = (next as jest.Mock).mock.calls[0][0];
+    expect(errorArg.code).toBe("restaurantMenuSummarizer/auth/apiKeyMissing");
+    expect(errorArg.message).toBe("API key is required");
   });
 
   it("should return 401 when API key is invalid", () => {
@@ -77,12 +77,12 @@ describe("Auth Middleware", () => {
 
     requireApiKey(req as Request, res as Response, next);
 
-    expect(next).not.toHaveBeenCalled();
-    expect(statusMock).toHaveBeenCalledWith(401);
-    expect(jsonMock).toHaveBeenCalledWith({
-      error: "restaurantMenuSummarizer/auth/unauthorized",
-      message: "Invalid or missing API key"
-    });
+    // Auth middleware now uses next(error) to pass to global error handler
+    expect(next).toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const errorArg = (next as jest.Mock).mock.calls[0][0];
+    expect(errorArg.code).toBe("restaurantMenuSummarizer/auth/unauthorized");
+    expect(errorArg.message).toBe("Invalid or missing API key");
   });
 
   it("should return 500 when API_KEY is not configured in environment", () => {
@@ -91,12 +91,11 @@ describe("Auth Middleware", () => {
 
     requireApiKey(req as Request, res as Response, next);
 
-    expect(next).not.toHaveBeenCalled();
-    expect(statusMock).toHaveBeenCalledWith(500);
-    expect(jsonMock).toHaveBeenCalledWith({
-      error: "INTERNAL_ERROR",
-      message: "API key not configured on server"
-    });
+    // When API_KEY not configured, middleware passes generic error to handler
+    expect(next).toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const errorArg = (next as jest.Mock).mock.calls[0][0];
+    expect(errorArg.message).toBe("API key not configured on server");
   });
 
   it("should prefer x-api-key header over Authorization header", () => {
@@ -116,8 +115,11 @@ describe("Auth Middleware", () => {
 
     requireApiKey(req as Request, res as Response, next);
 
-    expect(next).not.toHaveBeenCalled();
-    expect(statusMock).toHaveBeenCalledWith(401);
+    // Auth middleware now uses next(error) to pass to global error handler
+    expect(next).toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const errorArg = (next as jest.Mock).mock.calls[0][0];
+    expect(errorArg.code).toBe("restaurantMenuSummarizer/auth/apiKeyMissing");
   });
 
   it("should reject empty API key", () => {
@@ -125,8 +127,11 @@ describe("Auth Middleware", () => {
 
     requireApiKey(req as Request, res as Response, next);
 
-    expect(next).not.toHaveBeenCalled();
-    expect(statusMock).toHaveBeenCalledWith(401);
+    // Auth middleware now uses next(error) to pass to global error handler
+    expect(next).toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const errorArg = (next as jest.Mock).mock.calls[0][0];
+    expect(errorArg.code).toBe("restaurantMenuSummarizer/auth/apiKeyMissing");
   });
 });
 

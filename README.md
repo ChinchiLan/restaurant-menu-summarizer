@@ -97,7 +97,7 @@ Extracts menu from restaurant URL for the specified date.
       "category": "polévka"
     }
   ],
-  "extraction_status": "success",
+  "daily_menu": true,
   "recommendedMeal": "Hovězí vývar"
 }
 ```
@@ -210,7 +210,7 @@ Since the project is built in Node.js, BeautifulSoup (Python) was excluded. Betw
 
 I focused on creating a clean, maintainable architecture with clear separation of concerns. Services are implemented as class-based modules with single exported instances, making the codebase testable and easy to understand. I prioritized code readability through consistent naming conventions, extracted constants for magic numbers, and added comments where logic is complex. The two-step LLM extraction pipeline (raw extraction → price normalization) provides better control and error handling, while the tool calling implementation demonstrates understanding of OpenAI's function calling capabilities, even though post-processing would be simpler. Input validation using Zod as a single source of truth ensures type safety at runtime, and structured error handling with custom error classes provides clear, actionable feedback. The pre-check mechanism for daily menu indicators is a practical cost optimization that prevents expensive LLM calls on à la carte menu pages, showing real-world thinking about API costs and efficiency.
 
-Beyond core functionality, I added features that provide real user value: preferences filtering by price and allergens allows users to find meals that match their dietary needs and budget constraints, and the recommended meal feature suggests the first matching item. The caching strategy using SQLite with URL+date keys ensures repeated requests don't trigger unnecessary LLM calls, while the TTL mechanism (1-day invalidation) keeps the cache fresh. Several edge cases are handled gracefully: empty menus return `extraction_status: "no_daily_menu"` rather than errors, invalid URLs are caught early with Zod validation, and LLM failures propagate proper error codes. However, some scenarios could be improved: handling image-only menus would require OCR integration, holiday detection could prevent requests to closed restaurants, and real-time menu updates during the day aren't currently supported (cache is date-based, not time-based). For production use, I would consider adding rate limiting, request queuing for high-traffic scenarios, webhook notifications for menu changes, and potentially a more sophisticated caching strategy with Redis for distributed deployments. The current implementation prioritizes simplicity, correctness, and maintainability over advanced features, which aligns well with the assignment scope.
+Beyond core functionality, I added features that provide real user value: preferences filtering by price and allergens allows users to find meals that match their dietary needs and budget constraints, and the recommended meal feature suggests the first matching item. The caching strategy using SQLite with URL+date keys ensures repeated requests don't trigger unnecessary LLM calls, while the date-based TTL mechanism (invalidates at midnight local time) keeps the cache fresh and ensures menus from previous days are never reused. Cache entries are valid only for the specific calendar date they were created for, with automatic cleanup of expired entries on startup and at midnight. Several edge cases are handled gracefully: empty menus return `daily_menu: false` rather than errors, invalid URLs are caught early with Zod validation, and LLM failures propagate proper error codes with retry logic and exponential backoff. However, some scenarios could be improved: handling image-only menus would require OCR integration, holiday detection could prevent requests to closed restaurants, and real-time menu updates during the day aren't currently supported (cache is date-based, not time-based). For production use, I would consider adding rate limiting, request queuing for high-traffic scenarios, webhook notifications for menu changes, and potentially a more sophisticated caching strategy with Redis for distributed deployments. The current implementation prioritizes simplicity, correctness, and maintainability over advanced features, which aligns well with the assignment scope.
 
 ---
 
@@ -238,7 +238,7 @@ npm test -- --coverage
 ```
 
 **Test suites:** 7  
-**Tests:** 80  
+**Tests:** 82  
 **Coverage:** Unit + Integration (~90%+)
 
 ---

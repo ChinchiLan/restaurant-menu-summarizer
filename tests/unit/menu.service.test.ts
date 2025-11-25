@@ -266,7 +266,7 @@ describe("MenuService", () => {
       expect(result).toHaveProperty("date", "2025-11-24");
       expect(result).toHaveProperty("day_of_week", "Pondělí");
       expect(result).toHaveProperty("menu_items");
-      expect(result).toHaveProperty("extraction_status", "success");
+      expect(result).toHaveProperty("daily_menu", true);
       expect(result).toHaveProperty("recommendedMeal", null);
     });
 
@@ -297,7 +297,7 @@ describe("MenuService", () => {
         date: "2025-11-24"
       });
 
-      expect(result).toHaveProperty("extraction_status", "no_daily_menu");
+      expect(result).toHaveProperty("daily_menu", false);
       expect(result.menu_items).toEqual([]);
       expect(mockedExtractMenu).not.toHaveBeenCalled();
     });

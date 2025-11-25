@@ -3,18 +3,20 @@ import * as cheerio from "cheerio";
 import { logger } from "../utils/logger";
 import { ScraperErrors } from "../errors";
 import { LOG_SOURCES, LOG_MESSAGES } from "../constants/log";
+import { retry } from "../utils/retry";
 
 export class ScraperService {
   async scrape(url: string): Promise<{ html: string; text: string }> {
     try {
       logger.info(LOG_SOURCES.SCRAPER, LOG_MESSAGES.FETCH_STARTED, { url });
 
-      const response = await axios.get(url, {
+      // Apply retry with exponential backoff for network/5xx errors
+      const response = await retry(() => axios.get(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         },
         timeout: 10000
-      });
+      }));
 
       const html = response.data;
 

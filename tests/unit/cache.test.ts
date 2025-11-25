@@ -39,7 +39,7 @@ describe("Cache Service - Czech Data", () => {
         { name: "Polévka", price: 45 },
         { name: "Svíčková", price: 145 }
       ],
-      extraction_status: "success" as const,
+      daily_menu: true,
       recommendedMeal: null
     };
 
@@ -63,7 +63,7 @@ describe("Cache Service - Czech Data", () => {
         { name: "Vepřové s knedlíky", price: 125 },
         { name: "Guláš", price: 135 }
       ],
-      extraction_status: "success" as const,
+      daily_menu: true,
       recommendedMeal: null
     };
 
@@ -87,24 +87,114 @@ describe("Cache Service - Czech Data", () => {
     expect(result).toBeNull();
   });
 
-  it("invalidateOldRecords() deletes old entries", async () => {
+  it("invalidateOldRecords() deletes entries with date < today", async () => {
     const url = "https://restaurace.cz";
-    const date = "2025-11-23";
-    const data = {
-      restaurant_name: "Test",
-      date: "2025-11-23",
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    
+    // Create a date string for yesterday
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+    const oldData = {
+      restaurant_name: "Old Menu",
+      date: yesterdayStr,
       day_of_week: "Neděle",
-      menu_items: [{ name: "Polévka", price: 45 }],
-      extraction_status: "success" as const,
+      menu_items: [{ name: "Old Polévka", price: 45 }],
+      daily_menu: true,
       recommendedMeal: null
     };
 
-    await cacheService.saveMenuToCache(url, date, data);
+    const todayData = {
+      restaurant_name: "Today Menu",
+      date: todayStr,
+      day_of_week: "Pondělí",
+      menu_items: [{ name: "Today Polévka", price: 50 }],
+      daily_menu: true,
+      recommendedMeal: null
+    };
 
+    // Save both old and today's menus
+    await cacheService.saveMenuToCache(url, yesterdayStr, oldData);
+    await cacheService.saveMenuToCache(url, todayStr, todayData);
+
+    // Verify both exist before cleanup
+    expect(await cacheService.getCachedMenu(url, yesterdayStr)).toEqual(oldData);
+    expect(await cacheService.getCachedMenu(url, todayStr)).toEqual(todayData);
+
+    // Run cleanup
     await cacheService.invalidateOldRecords();
 
-    const result = await cacheService.getCachedMenu(url, date);
-    expect(result).toEqual(data);
+    // Old entry should be deleted, today's should remain
+    expect(await cacheService.getCachedMenu(url, yesterdayStr)).toBeNull();
+    expect(await cacheService.getCachedMenu(url, todayStr)).toEqual(todayData);
+  });
+
+  it("getCachedMenu() does NOT return yesterday's menu when requesting today", async () => {
+    const url = "https://restaurace.cz";
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+    const yesterdayData = {
+      restaurant_name: "Yesterday Menu",
+      date: yesterdayStr,
+      day_of_week: "Neděle",
+      menu_items: [{ name: "Yesterday Polévka", price: 45 }],
+      daily_menu: true,
+      recommendedMeal: null
+    };
+
+    // Save yesterday's menu
+    await cacheService.saveMenuToCache(url, yesterdayStr, yesterdayData);
+
+    // Request today's menu - should return null (not yesterday's)
+    const result = await cacheService.getCachedMenu(url, todayStr);
+    expect(result).toBeNull();
+
+    // But yesterday's menu should still be retrievable with yesterday's date
+    const yesterdayResult = await cacheService.getCachedMenu(url, yesterdayStr);
+    expect(yesterdayResult).toEqual(yesterdayData);
+  });
+
+  it("menus for different dates are stored separately", async () => {
+    const url = "https://restaurace.cz";
+    const date1 = "2025-11-23";
+    const date2 = "2025-11-24";
+    
+    const data1 = {
+      restaurant_name: "Restaurant",
+      date: date1,
+      day_of_week: "Neděle",
+      menu_items: [{ name: "Menu 1", price: 45 }],
+      daily_menu: true,
+      recommendedMeal: null
+    };
+
+    const data2 = {
+      restaurant_name: "Restaurant",
+      date: date2,
+      day_of_week: "Pondělí",
+      menu_items: [{ name: "Menu 2", price: 50 }],
+      daily_menu: true,
+      recommendedMeal: null
+    };
+
+    await cacheService.saveMenuToCache(url, date1, data1);
+    await cacheService.saveMenuToCache(url, date2, data2);
+
+    // Each date should return its own menu
+    const result1 = await cacheService.getCachedMenu(url, date1);
+    const result2 = await cacheService.getCachedMenu(url, date2);
+
+    expect(result1).toEqual(data1);
+    expect(result2).toEqual(data2);
+    expect(result1.menu_items[0].name).toBe("Menu 1");
+    expect(result2.menu_items[0].name).toBe("Menu 2");
   });
 
   it("caches multiple Czech restaurants separately", async () => {
@@ -117,7 +207,7 @@ describe("Cache Service - Czech Data", () => {
       date: "2025-11-23",
       day_of_week: "Neděle",
       menu_items: [{ name: "Polévka", price: 45 }],
-      extraction_status: "success" as const,
+      daily_menu: true,
       recommendedMeal: null
     };
     const data2 = {
@@ -125,7 +215,7 @@ describe("Cache Service - Czech Data", () => {
       date: "2025-11-23",
       day_of_week: "Neděle",
       menu_items: [{ name: "Guláš", price: 135 }],
-      extraction_status: "success" as const,
+      daily_menu: true,
       recommendedMeal: null
     };
 
@@ -137,5 +227,28 @@ describe("Cache Service - Czech Data", () => {
 
     expect(result1.menu_items[0].name).toBe("Polévka");
     expect(result2.menu_items[0].name).toBe("Guláš");
+  });
+
+  it("auto-heals corrupted JSON in cache", async () => {
+    const url = "https://restaurace.cz";
+    const date = "2025-11-23";
+    
+    // Manually insert corrupted JSON
+    const db = (cacheService as any).getDb();
+    await db.run(
+      `INSERT INTO menu_cache (url, date, data) VALUES (?, ?, ?)`,
+      [url, date, "invalid json {broken"]
+    );
+
+    // getCachedMenu should return null and delete the corrupted entry
+    const result = await cacheService.getCachedMenu(url, date);
+    expect(result).toBeNull();
+
+    // Verify the corrupted entry was deleted
+    const check = await db.get(
+      `SELECT * FROM menu_cache WHERE url = ? AND date = ?`,
+      [url, date]
+    );
+    expect(check).toBeUndefined();
   });
 });

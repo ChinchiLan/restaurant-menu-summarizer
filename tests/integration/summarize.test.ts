@@ -26,8 +26,12 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
     await cacheService.init("test-cache.db");
 
     app = express();
-    app.use(express.json());
+    app.use(express.json({ limit: "2mb" }));
     app.use("/api", summarizeRouter);
+    
+    // Import and register error handler (must be last)
+    const { errorHandler } = require("../../src/middleware/error.middleware");
+    app.use(errorHandler);
   });
 
   afterAll(async () => {
@@ -154,9 +158,10 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/urlEmpty");
-    expect(response.body).toHaveProperty("message");
-    expect(response.body.message).toContain("url");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/validation/urlEmpty");
+    expect(response.body.error).toHaveProperty("message");
+    expect(response.body.error.message).toContain("url");
   });
 
   it("validation error when date has bad format", async () => {
@@ -171,8 +176,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidDateFormat");
-    expect(response.body.message).toContain("YYYY-MM-DD");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/validation/invalidDateFormat");
+    expect(response.body.error.message).toContain("YYYY-MM-DD");
   });
 
   it("validation error when date is invalid", async () => {
@@ -187,8 +193,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidDateFormat");
-    expect(response.body.message).toContain("YYYY-MM-DD");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/validation/invalidDateFormat");
+    expect(response.body.error.message).toContain("YYYY-MM-DD");
   });
 
   it("handles multiple Czech restaurants with different menus", async () => {
@@ -243,8 +250,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(502);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/scraper/fetchFailed");
-    expect(response.body.message).toContain("Failed to fetch URL");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/scraper/fetchFailed");
+    expect(response.body.error.message).toContain("Failed to fetch URL");
   });
 
   it("validation error when url does not start with http or https", async () => {
@@ -259,8 +267,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
-    expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/validation/invalidUrlFormat");
+    expect(response.body.error.message).toBe("url must be a valid HTTP/HTTPS URL");
   });
 
   it("validation error for javascript: URL scheme", async () => {
@@ -275,8 +284,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
-    expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/validation/invalidUrlFormat");
+    expect(response.body.error.message).toBe("url must be a valid HTTP/HTTPS URL");
   });
 
   it("validation error for URL without protocol", async () => {
@@ -291,8 +301,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(400);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/validation/invalidUrlFormat");
-    expect(response.body.message).toBe("url must be a valid HTTP/HTTPS URL");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/validation/invalidUrlFormat");
+    expect(response.body.error.message).toBe("url must be a valid HTTP/HTTPS URL");
   });
 
   it("accepts both http and https URLs", async () => {
@@ -428,8 +439,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(401);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/auth/apiKeyMissing");
-    expect(response.body).toHaveProperty("message", "API key is required");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/auth/apiKeyMissing");
+    expect(response.body.error).toHaveProperty("message", "API key is required");
   });
 
   it("returns 401 when API key is invalid", async () => {
@@ -444,8 +456,9 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(401);
 
-    expect(response.body).toHaveProperty("error", "restaurantMenuSummarizer/auth/unauthorized");
-    expect(response.body).toHaveProperty("message", "Invalid or missing API key");
+    expect(response.body).toHaveProperty("error");
+    expect(response.body.error).toHaveProperty("code", "restaurantMenuSummarizer/auth/unauthorized");
+    expect(response.body.error).toHaveProperty("message", "Invalid or missing API key");
   });
 
   it("accepts valid API key via Authorization Bearer header", async () => {
@@ -491,7 +504,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
     // Should return empty menu with no_daily_menu status
     expect(response.body).toHaveProperty("restaurant_name", "À la Carte Restaurant");
     expect(response.body).toHaveProperty("menu_items", []);
-    expect(response.body).toHaveProperty("extraction_status", "no_daily_menu");
+    expect(response.body).toHaveProperty("daily_menu", false);
     expect(response.body).toHaveProperty("recommendedMeal", null);
 
     // LLM menu extraction should NOT have been called (cost-saving)
@@ -523,7 +536,7 @@ describe("Integration: POST /api/summarize - Czech Data", () => {
       .send(requestBody)
       .expect(200);
 
-    expect(response.body).toHaveProperty("extraction_status", "no_daily_menu");
+    expect(response.body).toHaveProperty("daily_menu", false);
     expect(response.body.menu_items).toEqual([]);
     expect(mockedExtractMenu).toHaveBeenCalled(); // LLM WAS called this time
   });

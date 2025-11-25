@@ -1,13 +1,16 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { menuService } from "../services/menu.service";
-import { handleError } from "../utils/error-mapper";
-import { LOG_SOURCES } from "../constants/log";
 
-export async function handleSummarize(req: Request, res: Response): Promise<void> {
-  try {
-    const result = await menuService.summarize(req.body);
-    res.status(200).json(result);
-  } catch (error) {
-    handleError(error, res, LOG_SOURCES.SUMMARIZE);
-  }
+/**
+ * Wrapper to ensure async errors are properly caught and passed to error handler
+ */
+export function handleSummarize(req: Request, res: Response, next: NextFunction): void {
+  menuService.summarize(req.body)
+    .then(result => {
+      res.status(200).json(result);
+    })
+    .catch(error => {
+      // Pass error to global error handler middleware
+      next(error);
+    });
 }

@@ -36,10 +36,9 @@ export function requireApiKey(req: Request, res: Response, next: NextFunction): 
     
     if (!validApiKey) {
       logger.error(LOG_SOURCES.AUTH, LOG_MESSAGES.API_KEY_NOT_CONFIGURED);
-      res.status(500).json({
-        error: "INTERNAL_ERROR",
-        message: "API key not configured on server"
-      });
+      // Pass to global error handler
+      const serverError = new Error("API key not configured on server");
+      next(serverError);
       return;
     }
     
@@ -56,28 +55,8 @@ export function requireApiKey(req: Request, res: Response, next: NextFunction): 
     next();
     
   } catch (error) {
-    if (error instanceof AuthErrors.ApiKeyMissingError) {
-      res.status(401).json({
-        error: error.code,
-        message: error.message
-      });
-      return;
-    }
-    
-    if (error instanceof AuthErrors.UnauthorizedError) {
-      res.status(401).json({
-        error: error.code,
-        message: error.message
-      });
-      return;
-    }
-    
-    // Unexpected error
-    logger.error(LOG_SOURCES.AUTH, "Unexpected error in auth middleware");
-    res.status(500).json({
-      error: "INTERNAL_ERROR",
-      message: "Authentication error"
-    });
+    // Pass all errors to global error handler
+    next(error);
   }
 }
 

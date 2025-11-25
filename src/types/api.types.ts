@@ -10,7 +10,7 @@ export interface RestaurantMenu {
   date: string;
   day_of_week: string;
   menu_items: MenuItem[];
-  extraction_status: "success" | "no_daily_menu";
+  daily_menu: boolean;
   recommendedMeal: string | null;
 }
 
