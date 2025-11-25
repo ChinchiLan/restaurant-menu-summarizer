@@ -31,20 +31,43 @@ RULES
 ======================
 GOOD EXAMPLES
 ======================
+
+Example 1 - Title tag:
 Input:
 <title>Restaurace U Lípy | Denní menu</title>
-→ Output:
+Output:
 Restaurace U Lípy
 
+Example 2 - H1 header:
 Input:
 <h1>U Tří Zlatých Hrušek</h1>
-→ Output:
+Output:
 U Tří Zlatých Hrušek
 
+Example 3 - Title with separator:
 Input:
 <title>Menu | Hospoda U Kačera</title>
-→ Output:
+Output:
 Hospoda U Kačera
+
+Example 4 - Complex title:
+Input:
+<title>Denní menu - Restaurace Na Rohu - Praha</title>
+Output:
+Restaurace Na Rohu
+
+Example 5 - Header with subtitle:
+Input:
+<h1>Tlustá Kachna</h1>
+<p>Restaurace a pivnice</p>
+Output:
+Tlustá Kachna
+
+Example 6 - Logo alt text:
+Input:
+<img alt="Restaurace U Fleků" src="logo.png">
+Output:
+Restaurace U Fleků
 
 ======================
 BAD EXAMPLES (NEVER RETURN)
@@ -52,9 +75,12 @@ BAD EXAMPLES (NEVER RETURN)
 "Menu"
 "Denní nabídka"
 "Jídelní lístek"
+"Polední menu"
 "restaurace-example.cz"
 "homepage"
 "unknown restaurant" (must be literally "unknown")
+"Restaurant" (too generic)
+"Menu restaurace" (not a name)
 
 ======================
 IMPORTANT
@@ -70,11 +96,24 @@ export function buildRestaurantNameUserPrompt(
 
 URL: ${url}
 
-Relevant text:
+EXTRACTION PRIORITY (check in this order):
+1. <title> tag - extract name before "|" or "-" separators
+2. <h1> or <h2> tags - usually contain the main name
+3. Logo alt text or image title
+4. Header/banner section text
+5. Explicit business name in body text
+
+Relevant text (scan for business name):
 ${text}
 
-Relevant HTML (title + headers preferred):
+Relevant HTML (focus on title, headers, logo):
 ${html}
 
-Return ONLY the name, nothing else.`;
+IMPORTANT:
+- Extract ONLY the actual business/restaurant name
+- Remove common prefixes like "Menu", "Denní nabídka", "Jídelní lístek"
+- Keep original capitalization and accents
+- If name cannot be determined → return "unknown"
+
+Return ONLY the name as plain text, nothing else.`;
 }
